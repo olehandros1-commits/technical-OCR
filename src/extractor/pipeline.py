@@ -321,9 +321,31 @@ def extract_all(
                 "tier": tier or "balanced",
             })
         results = replay(log_event=log_event, tier=tier)
-        # Inject an empty telemetry block so the UI metric strip renders.
         for r in results:
             r.setdefault("_anomalies", r.get("_anomalies", []))
+        # Replay runs still produce an audit row -- otherwise the audit
+        # log is unaware of demo activity and tests assert a tail entry
+        # against a pre-existing row from a prior session.
+        try:
+            audit.backend = "demo-replay"
+            audit.statement_count = len(results)
+            audit.reconciled_count = sum(
+                1 for o in results
+                if (o.get("_reconciliation") or {}).get("ok")
+            )
+            audit.transactions_count = sum(len(o["transactions"]) for o in results)
+            audit.total_cost_usd = 0.0
+            audit.elapsed_s = round(time.time() - started_at, 2)
+            audit.metadata = {"mode": "demo_replay", "tier": tier or "balanced"}
+            audit_id = _audit_log().record(started_at, audit)
+            if log_event:
+                log_event("audit_recorded", {
+                    "audit_id": audit_id,
+                    "total_cost_usd": 0.0,
+                    "elapsed_s": audit.elapsed_s,
+                })
+        except Exception as e:
+            log.warning("audit log write failed (replay path): %s", e)
         return results
 
     if backend is None or isinstance(backend, str):
