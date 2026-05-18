@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
-import time
 from typing import TypeVar
 
 from pydantic import BaseModel
 
-from dobs.application.ports.telemetry_collector import CallStats, TelemetryCollectorPort
+from dobs.application.ports.telemetry_collector import TelemetryCollectorPort
 from dobs.domain.value_objects.image_part import ImagePart
 from dobs.domain.value_objects.llm_role import LLMRole
+from dobs.infrastructure.adapters.llm.base import StructuredOutputCaller
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -28,16 +27,11 @@ _JSON_GUARD = (
     "\n\nIMPORTANT: respond with ONLY a single JSON object matching "
     "the provided schema. No prose, no markdown, no code fences."
 )
-_JSON_GUARD_SHORT = (
-    "\n\nIMPORTANT: respond with ONLY a single JSON object matching "
-    "the provided schema."
-)
 
 
-class OllamaLLMBackend:
-    name = "ollama"
-
+class OllamaLLMBackend(StructuredOutputCaller):
     def __init__(self, /, *, telemetry: TelemetryCollectorPort) -> None:
+        super().__init__(telemetry=telemetry, name="ollama")
         try:
             from ollama import AsyncClient
         except ImportError as exc:
@@ -45,7 +39,19 @@ class OllamaLLMBackend:
                 "OllamaLLMBackend requires the `ollama` package: pip install ollama"
             ) from exc
         self._client = AsyncClient(host=_OLLAMA_HOST)
-        self._telemetry = telemetry
+
+    async def _invoke(self, *, model: str, payload: dict) -> tuple[object, dict[str, int]]:
+        resp = await self._client.chat(model=model, **payload)
+        usage = {
+            "input":  resp.get("prompt_eval_count", 0) or 0,
+            "output": resp.get("eval_count",        0) or 0,
+        }
+        return resp, usage
+
+    def _is_retryable(self, exc: Exception) -> tuple[bool, float | None]:
+        if isinstance(exc, (json.JSONDecodeError, ValueError)):
+            return False, None
+        return True, None
 
     async def call_structured(
         self,
@@ -58,49 +64,18 @@ class OllamaLLMBackend:
         cache_system: bool = True,
     ) -> T:
         model = _MODEL_FOR_ROLE[role]
-        schema = response_model.model_json_schema()
-        sys_with_guard = system + _JSON_GUARD
-
-        backoff = 2.0
-        last_exc: Exception | None = None
-        for attempt in range(1, max_retries + 1):
-            t0 = time.monotonic()
-            try:
-                resp = await self._client.chat(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": sys_with_guard},
-                        {"role": "user",   "content": user},
-                    ],
-                    format=schema,
-                    options={"num_ctx": _NUM_CTX, "temperature": 0.0},
-                )
-                self._telemetry.record(CallStats(
-                    backend="ollama",
-                    model=model,
-                    role=role.value,
-                    input_tokens=resp.get("prompt_eval_count", 0) or 0,
-                    output_tokens=resp.get("eval_count",       0) or 0,
-                    elapsed_s=round(time.monotonic() - t0, 3),
-                    cost_usd=0.0,
-                ))
-                content = resp["message"]["content"]
-                data = json.loads(content)
-                return response_model.model_validate(data)
-            except (json.JSONDecodeError, ValueError) as e:
-                last_exc = e
-                if attempt >= 2:
-                    raise
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 30.0)
-                continue
-            except Exception as e:
-                last_exc = e
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 30.0)
-                continue
-        assert last_exc is not None
-        raise last_exc
+        payload = {
+            "messages": [
+                {"role": "system", "content": system + _JSON_GUARD},
+                {"role": "user",   "content": user},
+            ],
+            "format": response_model.model_json_schema(),
+            "options": {"num_ctx": _NUM_CTX, "temperature": 0.0},
+        }
+        return await self._retry_loop(
+            model=model, role=role, payload=payload, max_retries=max_retries,
+            parse=lambda resp: response_model.model_validate(json.loads(resp["message"]["content"])),
+        )
 
     async def call_vision(
         self,
@@ -112,42 +87,22 @@ class OllamaLLMBackend:
         max_retries: int = 6,
     ) -> T:
         model = _MODEL_FOR_ROLE[LLMRole.VISION]
-        schema = response_model.model_json_schema()
-        sys_with_guard = system + _JSON_GUARD_SHORT
-
-        backoff = 2.0
-        last_exc: Exception | None = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                resp = await self._client.chat(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": sys_with_guard},
-                        {
-                            "role": "user",
-                            "content": user,
-                            "images": [img.data_b64 for img in images],
-                        },
-                    ],
-                    format=schema,
-                    options={"num_ctx": _NUM_CTX, "temperature": 0.0},
-                )
-                content = resp["message"]["content"]
-                data = json.loads(content)
-                return response_model.model_validate(data)
-            except (json.JSONDecodeError, ValueError) as e:
-                last_exc = e
-                if attempt >= 2:
-                    raise
-                await asyncio.sleep(backoff)
-                continue
-            except Exception as e:
-                last_exc = e
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 30.0)
-                continue
-        assert last_exc is not None
-        raise last_exc
+        payload = {
+            "messages": [
+                {"role": "system", "content": system + _JSON_GUARD},
+                {
+                    "role": "user",
+                    "content": user,
+                    "images": [img.data_b64 for img in images],
+                },
+            ],
+            "format": response_model.model_json_schema(),
+            "options": {"num_ctx": _NUM_CTX, "temperature": 0.0},
+        }
+        return await self._retry_loop(
+            model=model, role=LLMRole.VISION, payload=payload, max_retries=max_retries,
+            parse=lambda resp: response_model.model_validate(json.loads(resp["message"]["content"])),
+        )
 
     def supports_vision(self) -> bool:
         return True

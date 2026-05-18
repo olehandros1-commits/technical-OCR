@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import asyncio
-import json as _json
 import os
-import time
 from datetime import datetime, timezone
 from typing import TypeVar
 
 from pydantic import BaseModel
 
-from dobs.application.ports.telemetry_collector import CallStats, TelemetryCollectorPort
+from dobs.application.ports.telemetry_collector import TelemetryCollectorPort
 from dobs.domain.value_objects.image_part import ImagePart
 from dobs.domain.value_objects.llm_role import LLMRole
+from dobs.infrastructure.adapters.llm.base import StructuredOutputCaller, coerce_to_model
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -34,22 +32,16 @@ _PRICE_OUTPUT_PER_M: dict[str, float] = {
     "claude-sonnet-4-5": float(os.getenv("PRICE_SONNET_OUTPUT", "15.0")),
     "claude-opus-4-5":   float(os.getenv("PRICE_OPUS_OUTPUT",  "75.0")),
 }
-_CACHE_READ_FRAC  = 0.10
+_CACHE_READ_FRAC = 0.10
 _CACHE_WRITE_FRAC = 1.25
 
 
-def _estimate_cost(
-    model: str,
-    in_tok: int,
-    out_tok: int,
-    cache_read: int = 0,
-    cache_write: int = 0,
-) -> float:
-    in_rate  = _PRICE_INPUT_PER_M.get(model, 3.0)  / 1_000_000.0
+def _estimate_cost(model: str, usage: dict[str, int]) -> float:
+    in_rate = _PRICE_INPUT_PER_M.get(model, 3.0) / 1_000_000.0
     out_rate = _PRICE_OUTPUT_PER_M.get(model, 15.0) / 1_000_000.0
-    cost = in_tok * in_rate + out_tok * out_rate
-    cost += cache_read  * in_rate * _CACHE_READ_FRAC
-    cost += cache_write * in_rate * _CACHE_WRITE_FRAC
+    cost = usage.get("input", 0) * in_rate + usage.get("output", 0) * out_rate
+    cost += usage.get("cache_read", 0) * in_rate * _CACHE_READ_FRAC
+    cost += usage.get("cache_write", 0) * in_rate * _CACHE_WRITE_FRAC
     return cost
 
 
@@ -62,32 +54,6 @@ def _usage_from_response(resp: object) -> dict[str, int]:
         "output":      getattr(u, "output_tokens",               0) or 0,
         "cache_read":  getattr(u, "cache_read_input_tokens",     0) or 0,
         "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0,
-    }
-
-
-def _coerce_to_model(raw: object, model: type[BaseModel]) -> BaseModel:
-    try:
-        return model.model_validate(raw)
-    except Exception as strict_err:
-        if not isinstance(raw, dict):
-            raise strict_err
-        coerced: dict = {}
-        for k, v in raw.items():
-            if isinstance(v, str) and v.lstrip().startswith(("[", "{")):
-                try:
-                    coerced[k] = _json.loads(v)
-                    continue
-                except Exception:
-                    pass
-            coerced[k] = v
-        return model.model_validate(coerced)
-
-
-def _pydantic_to_tool(name: str, model: type[BaseModel]) -> dict:
-    return {
-        "name": name,
-        "description": f"Return a structured {model.__name__} record.",
-        "input_schema": model.model_json_schema(),
     }
 
 
@@ -114,16 +80,40 @@ def _retry_after_seconds(exc: object) -> float | None:
     return None
 
 
-class AnthropicLLMBackend:
-    name = "anthropic"
-
+class AnthropicLLMBackend(StructuredOutputCaller):
     def __init__(self, /, *, telemetry: TelemetryCollectorPort) -> None:
+        super().__init__(telemetry=telemetry, name="anthropic")
         from anthropic import AsyncAnthropic
         self._client = AsyncAnthropic()
-        self._telemetry = telemetry
 
-    def _tool_name_for(self, response_model: type[BaseModel]) -> str:
-        return "record_" + response_model.__name__.lower()
+    def _tool_for(self, response_model: type[BaseModel]) -> dict:
+        return {
+            "name": "record_" + response_model.__name__.lower(),
+            "description": f"Return a structured {response_model.__name__} record.",
+            "input_schema": response_model.model_json_schema(),
+        }
+
+    async def _invoke(self, *, model: str, payload: dict) -> tuple[object, dict[str, int]]:
+        resp = await self._client.messages.create(**payload, model=model, max_tokens=_MAX_TOKENS)
+        return resp, _usage_from_response(resp)
+
+    def _is_retryable(self, exc: Exception) -> tuple[bool, float | None]:
+        from anthropic import APIStatusError, RateLimitError
+
+        if isinstance(exc, RateLimitError):
+            return True, _retry_after_seconds(exc)
+        if isinstance(exc, APIStatusError) and 500 <= exc.status_code < 600:
+            return True, None
+        return False, None
+
+    def _extract_tool_output(self, resp: object, tool_name: str, response_model: type[T]) -> T:
+        for block in resp.content:  # type: ignore[attr-defined]
+            if block.type == "tool_use" and block.name == tool_name:
+                return coerce_to_model(block.input, response_model)  # type: ignore[return-value]
+        raise ValueError(
+            f"Model returned no tool_use for '{tool_name}'. "
+            f"Stop reason: {getattr(resp, 'stop_reason', '?')}."
+        )
 
     async def call_structured(
         self,
@@ -135,68 +125,24 @@ class AnthropicLLMBackend:
         max_retries: int = 6,
         cache_system: bool = True,
     ) -> T:
-        from anthropic import APIStatusError, RateLimitError
-
         model = _MODEL_FOR_ROLE[role]
-        tool = _pydantic_to_tool(self._tool_name_for(response_model), response_model)
+        tool = self._tool_for(response_model)
         system_blocks: list[dict] = [{"type": "text", "text": system}]
         if cache_system:
             system_blocks[0]["cache_control"] = {"type": "ephemeral"}
 
-        backoff = 2.0
-        last_exc: Exception | None = None
-        for attempt in range(1, max_retries + 1):
-            t0 = time.monotonic()
-            try:
-                resp = await self._client.messages.create(
-                    model=model,
-                    max_tokens=_MAX_TOKENS,
-                    system=system_blocks,
-                    tools=[tool],
-                    tool_choice={"type": "tool", "name": tool["name"]},
-                    messages=[{"role": "user", "content": user}],
-                )
-                u = _usage_from_response(resp)
-                call_cost = _estimate_cost(
-                    model,
-                    u.get("input", 0),
-                    u.get("output", 0),
-                    u.get("cache_read", 0),
-                    u.get("cache_write", 0),
-                )
-                self._telemetry.record(CallStats(
-                    backend="anthropic",
-                    model=model,
-                    role=role.value,
-                    input_tokens=u.get("input", 0),
-                    output_tokens=u.get("output", 0),
-                    cache_read_tokens=u.get("cache_read", 0),
-                    cache_write_tokens=u.get("cache_write", 0),
-                    elapsed_s=round(time.monotonic() - t0, 3),
-                    cost_usd=call_cost,
-                ))
-                for block in resp.content:
-                    if block.type == "tool_use" and block.name == tool["name"]:
-                        return _coerce_to_model(block.input, response_model)  # type: ignore[return-value]
-                raise ValueError(
-                    f"Model returned no tool_use for '{tool['name']}'. "
-                    f"Stop reason: {resp.stop_reason}."
-                )
-            except RateLimitError as e:
-                last_exc = e
-                wait = _retry_after_seconds(e) or backoff
-                await asyncio.sleep(wait)
-                backoff = min(backoff * 2, 60.0)
-                continue
-            except APIStatusError as e:
-                last_exc = e
-                if 500 <= e.status_code < 600:
-                    await asyncio.sleep(backoff)
-                    backoff = min(backoff * 2, 60.0)
-                    continue
-                raise
-        assert last_exc is not None
-        raise last_exc
+        payload = {
+            "system": system_blocks,
+            "tools": [tool],
+            "tool_choice": {"type": "tool", "name": tool["name"]},
+            "messages": [{"role": "user", "content": user}],
+        }
+
+        return await self._retry_loop(
+            model=model, role=role, payload=payload, max_retries=max_retries,
+            parse=lambda resp: self._extract_tool_output(resp, tool["name"], response_model),
+            cost_fn=_estimate_cost,
+        )
 
     async def call_vision(
         self,
@@ -207,10 +153,8 @@ class AnthropicLLMBackend:
         response_model: type[T],
         max_retries: int = 6,
     ) -> T:
-        from anthropic import APIStatusError, RateLimitError
-
         model = _MODEL_FOR_ROLE[LLMRole.VISION]
-        tool = _pydantic_to_tool(self._tool_name_for(response_model), response_model)
+        tool = self._tool_for(response_model)
         image_blocks = [
             {
                 "type": "image",
@@ -222,65 +166,17 @@ class AnthropicLLMBackend:
             }
             for img in images
         ]
-        content = image_blocks + [{"type": "text", "text": user}]
-        system_blocks: list[dict] = [
-            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
-        ]
-
-        backoff = 2.0
-        last_exc: Exception | None = None
-        for attempt in range(1, max_retries + 1):
-            t0 = time.monotonic()
-            try:
-                resp = await self._client.messages.create(
-                    model=model,
-                    max_tokens=_MAX_TOKENS,
-                    system=system_blocks,
-                    tools=[tool],
-                    tool_choice={"type": "tool", "name": tool["name"]},
-                    messages=[{"role": "user", "content": content}],
-                )
-                u = _usage_from_response(resp)
-                call_cost = _estimate_cost(
-                    model,
-                    u.get("input", 0),
-                    u.get("output", 0),
-                    u.get("cache_read", 0),
-                    u.get("cache_write", 0),
-                )
-                self._telemetry.record(CallStats(
-                    backend="anthropic",
-                    model=model,
-                    role=LLMRole.VISION.value,
-                    input_tokens=u.get("input", 0),
-                    output_tokens=u.get("output", 0),
-                    cache_read_tokens=u.get("cache_read", 0),
-                    cache_write_tokens=u.get("cache_write", 0),
-                    elapsed_s=round(time.monotonic() - t0, 3),
-                    cost_usd=call_cost,
-                ))
-                for block in resp.content:
-                    if block.type == "tool_use" and block.name == tool["name"]:
-                        return _coerce_to_model(block.input, response_model)  # type: ignore[return-value]
-                raise ValueError(
-                    f"Vision model returned no tool_use for '{tool['name']}'. "
-                    f"Stop reason: {resp.stop_reason}."
-                )
-            except RateLimitError as e:
-                last_exc = e
-                wait = _retry_after_seconds(e) or backoff
-                await asyncio.sleep(wait)
-                backoff = min(backoff * 2, 60.0)
-                continue
-            except APIStatusError as e:
-                last_exc = e
-                if 500 <= e.status_code < 600:
-                    await asyncio.sleep(backoff)
-                    backoff = min(backoff * 2, 60.0)
-                    continue
-                raise
-        assert last_exc is not None
-        raise last_exc
+        payload = {
+            "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            "tools": [tool],
+            "tool_choice": {"type": "tool", "name": tool["name"]},
+            "messages": [{"role": "user", "content": image_blocks + [{"type": "text", "text": user}]}],
+        }
+        return await self._retry_loop(
+            model=model, role=LLMRole.VISION, payload=payload, max_retries=max_retries,
+            parse=lambda resp: self._extract_tool_output(resp, tool["name"], response_model),
+            cost_fn=_estimate_cost,
+        )
 
     def supports_vision(self) -> bool:
         return True

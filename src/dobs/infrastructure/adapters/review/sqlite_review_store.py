@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import asyncio
-from pathlib import Path
-
-import aiosqlite
-
 from dobs.application.ports.review_store import Decision, ReviewStorePort
+from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 
 
-_SCHEMA = """
+REVIEW_SCHEMA = """
 CREATE TABLE IF NOT EXISTS reviews (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     statement_key   TEXT NOT NULL,
@@ -24,22 +20,8 @@ CREATE INDEX IF NOT EXISTS idx_reviews_lookup
 
 
 class SqliteReviewStore(ReviewStorePort):
-    def __init__(self, /, *, db_path: Path) -> None:
-        self._db_path = Path(db_path)
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_lock = asyncio.Lock()
-        self._initialised = False
-
-    async def _ensure_init(self) -> None:
-        if self._initialised:
-            return
-        async with self._init_lock:
-            if self._initialised:
-                return
-            async with aiosqlite.connect(self._db_path) as db:
-                await db.executescript(_SCHEMA)
-                await db.commit()
-            self._initialised = True
+    def __init__(self, /, *, sessions: SqliteSessionFactory) -> None:
+        self._sessions = sessions
 
     async def record(
         self,
@@ -50,20 +32,17 @@ class SqliteReviewStore(ReviewStorePort):
         reviewer: str | None = None,
         note: str | None = None,
     ) -> int:
-        await self._ensure_init()
-        async with aiosqlite.connect(self._db_path) as db:
-            cursor = await db.execute(
+        async with self._sessions.session() as session:
+            cursor = await session.execute(
                 "INSERT INTO reviews (statement_key, tx_index, decision, reviewer, note) "
                 "VALUES (?, ?, ?, ?, ?)",
                 (statement_key, tx_index, decision, reviewer, note),
             )
-            await db.commit()
             return cursor.lastrowid
 
     async def latest_for_statement(self, statement_key: str) -> dict[int, dict]:
-        await self._ensure_init()
-        async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute(
+        async with self._sessions.read_only() as session:
+            async with session.execute(
                 "SELECT tx_index, decision, reviewer, note FROM reviews r1 "
                 "WHERE statement_key = ? AND id = ("
                 "  SELECT MAX(id) FROM reviews r2 "
@@ -85,9 +64,8 @@ class SqliteReviewStore(ReviewStorePort):
         }
 
     async def history(self, statement_key: str, tx_index: int) -> list[dict]:
-        await self._ensure_init()
-        async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute(
+        async with self._sessions.read_only() as session:
+            async with session.execute(
                 "SELECT decision, reviewer, note FROM reviews "
                 "WHERE statement_key = ? AND tx_index = ? "
                 "ORDER BY id ASC",

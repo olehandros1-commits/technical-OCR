@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
-from pathlib import Path
-
-import aiosqlite
 
 from dobs.application.ports.audit_sink import AuditSinkPort
 from dobs.domain.entities.audit_record import AuditRecord
+from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 
 
-_SCHEMA = """
+AUDIT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS audit_log (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     started_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -54,27 +51,12 @@ def _prompts_hash() -> str:
 
 
 class SqliteAuditSink(AuditSinkPort):
-    def __init__(self, /, *, db_path: Path) -> None:
-        self._db_path = Path(db_path)
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_lock = asyncio.Lock()
-        self._initialised = False
-
-    async def _ensure_init(self) -> None:
-        if self._initialised:
-            return
-        async with self._init_lock:
-            if self._initialised:
-                return
-            async with aiosqlite.connect(self._db_path) as db:
-                await db.executescript(_SCHEMA)
-                await db.commit()
-            self._initialised = True
+    def __init__(self, /, *, sessions: SqliteSessionFactory) -> None:
+        self._sessions = sessions
 
     async def record(self, started_at: float, record: AuditRecord) -> int:
-        await self._ensure_init()
-        async with aiosqlite.connect(self._db_path) as db:
-            cursor = await db.execute(
+        async with self._sessions.session() as session:
+            cursor = await session.execute(
                 "INSERT INTO audit_log "
                 "(started_at, finished_at, tier, backend, source_filename, "
                 "source_sha256, statement_count, reconciled_count, "
@@ -99,13 +81,11 @@ class SqliteAuditSink(AuditSinkPort):
                     json.dumps(record.metadata),
                 ),
             )
-            await db.commit()
             return cursor.lastrowid
 
     async def recent(self, limit: int = 50) -> list[AuditRecord]:
-        await self._ensure_init()
-        async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute(
+        async with self._sessions.read_only() as session:
+            async with session.execute(
                 f"SELECT {', '.join(_COLS)} FROM audit_log ORDER BY id DESC LIMIT ?",
                 (limit,),
             ) as cursor:

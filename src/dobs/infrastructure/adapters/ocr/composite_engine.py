@@ -22,10 +22,12 @@ class CompositeOcrEngine(OcrEnginePort):
         file_reader: FileReader,
         tesseract: TesseractOcrEngine,
         vision: VisionOcrEngine | None,
+        opendataloader: OcrEnginePort | None = None,
     ) -> None:
         self._file_reader = file_reader
         self._tesseract = tesseract
         self._vision = vision
+        self._opendataloader = opendataloader
 
     async def extract_text(
         self,
@@ -43,10 +45,15 @@ class CompositeOcrEngine(OcrEnginePort):
         if kind != "pdf":
             return await self._tesseract.extract_text(path, log_event=log_event)
 
+        if ocr_mode == "opendataloader":
+            if self._opendataloader is None:
+                raise ValueError("ocr_mode='opendataloader' requires the engine to be wired")
+            return await self._opendataloader.extract_text(path, log_event=log_event)
+
         if ocr_mode == "vision":
             if self._vision is None:
                 raise ValueError("ocr_mode='vision' requires a VisionOcrEngine")
-            return await self._extract_pdf_vision(path, log_event)
+            return await self._vision.extract_text(path, log_event=log_event)
 
         if ocr_mode == "tesseract":
             return await self._tesseract.extract_text(path, log_event=log_event)
@@ -54,19 +61,17 @@ class CompositeOcrEngine(OcrEnginePort):
         if ocr_mode == "skip":
             return await asyncio.to_thread(self._file_reader.from_pdf_text, p)
 
+        if self._opendataloader is not None:
+            try:
+                return await self._opendataloader.extract_text(path, log_event=log_event)
+            except Exception:
+                pass
+
         text = await asyncio.to_thread(self._file_reader.from_pdf_text, p)
         if len(text.strip()) >= 200:
             return text
 
         if self._vision is not None and self._vision._backend.supports_vision():
-            return await self._extract_pdf_vision(path, log_event)
+            return await self._vision.extract_text(path, log_event=log_event)
 
         return await self._tesseract.extract_text(path, log_event=log_event)
-
-    async def _extract_pdf_vision(
-        self,
-        path: str,
-        log_event: Callable | None = None,
-    ) -> str:
-        assert self._vision is not None
-        return await self._vision.extract_text(path, log_event=log_event)

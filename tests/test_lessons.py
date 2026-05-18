@@ -1,6 +1,12 @@
 from pathlib import Path
 
-from dobs.infrastructure.adapters.lessons.sqlite_lessons_store import SqliteLessonsStore as LessonsStore
+from dobs.infrastructure.adapters.lessons.sqlite_lessons_store import LESSONS_SCHEMA, SqliteLessonsStore as LessonsStore
+from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
+
+
+def _make_store(tmp_path):
+    sessions = SqliteSessionFactory(db_path=tmp_path / "lessons.db", schema=LESSONS_SCHEMA)
+    return LessonsStore(sessions=sessions)
 from dobs.application.services.lessons_helpers import LessonsHelper
 
 _lessons = LessonsHelper()
@@ -66,7 +72,7 @@ def test_diagnose_no_lessons_when_already_ok():
 
 
 async def test_store_roundtrip(tmp_path: Path):
-    store = LessonsStore(db_path=tmp_path / "lessons.db")
+    store = _make_store(tmp_path)
     await store.record("hash1", "hint A", "src1")
     await store.record("hash2", "hint B", "src2")
     await store.record("hash1", "hint A", "src3")
@@ -75,13 +81,13 @@ async def test_store_roundtrip(tmp_path: Path):
 
 
 async def test_lessons_block_empty_when_store_empty(tmp_path: Path):
-    store = LessonsStore(db_path=tmp_path / "lessons.db")
+    store = _make_store(tmp_path)
     hints = await store.top_hints(10)
     assert lessons_block(hints) == ""
 
 
 async def test_lessons_block_renders_top_hints(tmp_path: Path):
-    store = LessonsStore(db_path=tmp_path / "lessons.db")
+    store = _make_store(tmp_path)
     await store.record("a", "alpha", "src")
     await store.record("b", "beta", "src")
     hints = await store.top_hints(5)

@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import asyncio
-from pathlib import Path
-
 import aiosqlite
 
 from dobs.application.ports.lessons_store import LessonsStorePort
+from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 
 
-_SCHEMA = """
+LESSONS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS lessons (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     pattern_hash    TEXT NOT NULL,
@@ -25,39 +23,22 @@ CREATE INDEX IF NOT EXISTS idx_lessons_rank
 
 
 class SqliteLessonsStore(LessonsStorePort):
-    def __init__(self, /, *, db_path: Path) -> None:
-        self._db_path = Path(db_path)
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_lock = asyncio.Lock()
-        self._initialised = False
-
-    async def _ensure_init(self) -> None:
-        if self._initialised:
-            return
-        async with self._init_lock:
-            if self._initialised:
-                return
-            async with aiosqlite.connect(self._db_path) as db:
-                await db.executescript(_SCHEMA)
-                await db.commit()
-            self._initialised = True
+    def __init__(self, /, *, sessions: SqliteSessionFactory) -> None:
+        self._sessions = sessions
 
     async def record(self, pattern_hash: str, hint: str, source: str | None = None) -> None:
-        await self._ensure_init()
-        async with aiosqlite.connect(self._db_path) as db:
+        async with self._sessions.session() as session:
             try:
-                await db.execute(
+                await session.execute(
                     "INSERT INTO lessons (pattern_hash, hint, source) VALUES (?, ?, ?)",
                     (pattern_hash, hint, source),
                 )
-                await db.commit()
             except aiosqlite.IntegrityError:
                 pass
 
     async def top_hints(self, limit: int = 5) -> list[str]:
-        await self._ensure_init()
-        async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute(
+        async with self._sessions.read_only() as session:
+            async with session.execute(
                 "SELECT hint FROM lessons "
                 "ORDER BY (helpful_count - unhelpful_count) DESC, created_at DESC "
                 "LIMIT ?",
@@ -67,25 +48,22 @@ class SqliteLessonsStore(LessonsStorePort):
         return [row[0] for row in rows]
 
     async def feedback(self, hint: str, helpful: bool) -> None:
-        await self._ensure_init()
         col = "helpful_count" if helpful else "unhelpful_count"
-        async with aiosqlite.connect(self._db_path) as db:
-            await db.execute(
+        async with self._sessions.session() as session:
+            await session.execute(
                 f"UPDATE lessons SET {col} = {col} + 1 WHERE hint = ?",
                 (hint,),
             )
-            await db.commit()
 
     async def stats(self) -> dict:
-        await self._ensure_init()
-        async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM lessons") as cursor:
+        async with self._sessions.read_only() as session:
+            async with session.execute("SELECT COUNT(*) FROM lessons") as cursor:
                 total = (await cursor.fetchone())[0]
-            async with db.execute(
+            async with session.execute(
                 "SELECT COALESCE(SUM(helpful_count), 0) FROM lessons"
             ) as cursor:
                 helpful = (await cursor.fetchone())[0]
-            async with db.execute(
+            async with session.execute(
                 "SELECT COALESCE(SUM(unhelpful_count), 0) FROM lessons"
             ) as cursor:
                 unhelpful = (await cursor.fetchone())[0]

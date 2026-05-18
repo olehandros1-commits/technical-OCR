@@ -43,22 +43,36 @@ from dobs.domain.services.prompt_sanitizer import PromptSanitizer
 from dobs.domain.services.reconcile import Reconciler
 from dobs.domain.services.recurring_detector import RecurringDetector
 from dobs.domain.services.row_parser import RowParser
-from dobs.infrastructure.adapters.audit.sqlite_audit_sink import SqliteAuditSink
+from dobs.infrastructure.adapters.audit.sqlite_audit_sink import AUDIT_SCHEMA, SqliteAuditSink
 from dobs.infrastructure.adapters.cache.resolver import open_cache
 from dobs.infrastructure.adapters.event_bus.asyncio_event_bus import AsyncioEventBus
-from dobs.infrastructure.adapters.lessons.sqlite_lessons_store import SqliteLessonsStore
+from dobs.infrastructure.adapters.lessons.sqlite_lessons_store import LESSONS_SCHEMA, SqliteLessonsStore
 from dobs.infrastructure.adapters.llm.anthropic_backend import AnthropicLLMBackend
 from dobs.infrastructure.adapters.ocr.composite_engine import CompositeOcrEngine
 from dobs.infrastructure.adapters.ocr.file_reader import FileReader
-from dobs.infrastructure.adapters.ocr.tesseract_engine import TesseractOcrEngine
+from dobs.infrastructure.adapters.ocr.tesseract_engine import (
+    OCR_CACHE_SCHEMA, OcrCacheStore, TesseractOcrEngine,
+)
 from dobs.infrastructure.adapters.ocr.vision_engine import VisionOcrEngine
 from dobs.infrastructure.adapters.replay.demo_replay import DemoReplayPlayer, is_replay_enabled
-from dobs.infrastructure.adapters.review.sqlite_review_store import SqliteReviewStore
+from dobs.infrastructure.adapters.review.sqlite_review_store import REVIEW_SCHEMA, SqliteReviewStore
 from dobs.infrastructure.adapters.telemetry.call_stats_collector import CallStatsCollector
-from dobs.infrastructure.adapters.vendor.clearbit_lookup import ClearbitVendorLookup
+from dobs.infrastructure.adapters.vendor.clearbit_lookup import (
+    VENDOR_CACHE_SCHEMA, ClearbitVendorLookup, VendorCacheStore,
+)
 from dobs.infrastructure.adapters.vendor.composite_lookup import CompositeVendorLookup
 from dobs.infrastructure.adapters.vendor.seed_lookup import SeedVendorLookup
+from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 from dobs.main.config.settings import AppSettings, get_settings
+
+from typing import NewType
+
+
+AuditSessions = NewType("AuditSessions", SqliteSessionFactory)
+ReviewSessions = NewType("ReviewSessions", SqliteSessionFactory)
+LessonsSessions = NewType("LessonsSessions", SqliteSessionFactory)
+OcrCacheSessions = NewType("OcrCacheSessions", SqliteSessionFactory)
+VendorCacheSessions = NewType("VendorCacheSessions", SqliteSessionFactory)
 
 
 class _EventBusEmitAdapter:
@@ -177,25 +191,63 @@ class InfrastructureProvider(Provider):
         return await open_cache(url)
 
     @provide
-    def audit(self, settings: AppSettings) -> AuditSinkPort:
-        return SqliteAuditSink(db_path=Path(settings.audit_log_db))
+    def audit_sessions(self, settings: AppSettings) -> AuditSessions:
+        return AuditSessions(SqliteSessionFactory(
+            db_path=Path(settings.audit_log_db), schema=AUDIT_SCHEMA,
+        ))
 
     @provide
-    def review_store_raw(self, settings: AppSettings) -> SqliteReviewStore:
-        return SqliteReviewStore(db_path=Path(settings.review_db))
+    def review_sessions(self, settings: AppSettings) -> ReviewSessions:
+        return ReviewSessions(SqliteSessionFactory(
+            db_path=Path(settings.review_db), schema=REVIEW_SCHEMA,
+        ))
+
+    @provide
+    def lessons_sessions(self) -> LessonsSessions:
+        return LessonsSessions(SqliteSessionFactory(
+            db_path=Path("out/lessons.db"), schema=LESSONS_SCHEMA,
+        ))
+
+    @provide
+    def ocr_cache_sessions(self, settings: AppSettings) -> OcrCacheSessions:
+        return OcrCacheSessions(SqliteSessionFactory(
+            db_path=Path(settings.ocr_cache_db), schema=OCR_CACHE_SCHEMA,
+        ))
+
+    @provide
+    def vendor_cache_sessions(self, settings: AppSettings) -> VendorCacheSessions:
+        return VendorCacheSessions(SqliteSessionFactory(
+            db_path=Path(settings.vendor_cache_db), schema=VENDOR_CACHE_SCHEMA,
+        ))
+
+    @provide
+    def ocr_cache(self, sessions: OcrCacheSessions) -> OcrCacheStore:
+        return OcrCacheStore(sessions=sessions)
+
+    @provide
+    def vendor_cache(self, sessions: VendorCacheSessions) -> VendorCacheStore:
+        return VendorCacheStore(sessions=sessions)
+
+    @provide
+    def audit(self, sessions: AuditSessions) -> AuditSinkPort:
+        return SqliteAuditSink(sessions=sessions)
+
+    @provide
+    def review_store_raw(self, sessions: ReviewSessions) -> SqliteReviewStore:
+        return SqliteReviewStore(sessions=sessions)
 
     @provide
     def review(self, store: SqliteReviewStore) -> ReviewStorePort:
         return _ReviewStoreAdapter(store=store)
 
     @provide
-    def lessons(self) -> LessonsStorePort:
-        return SqliteLessonsStore(db_path=Path("out/lessons.db"))
+    def lessons(self, sessions: LessonsSessions) -> LessonsStorePort:
+        return SqliteLessonsStore(sessions=sessions)
 
     @provide
-    def vendor_composite(self) -> CompositeVendorLookup:
+    def vendor_composite(self, vendor_cache: VendorCacheStore) -> CompositeVendorLookup:
         seed = SeedVendorLookup()
-        clearbit = ClearbitVendorLookup()
+        clearbit = ClearbitVendorLookup(cache=vendor_cache)
         return CompositeVendorLookup(seed=seed, clearbit=clearbit)
 
     @provide
@@ -207,14 +259,23 @@ class InfrastructureProvider(Provider):
         return _EventBusEmitAdapter(bus=AsyncioEventBus())
 
     @provide
-    def ocr(self, llm: LLMBackendPort) -> OcrEnginePort:
+    def ocr(self, llm: LLMBackendPort, ocr_cache: OcrCacheStore) -> OcrEnginePort:
         file_reader = FileReader()
-        tesseract = TesseractOcrEngine(file_reader=file_reader)
+        tesseract = TesseractOcrEngine(file_reader=file_reader, cache=ocr_cache)
         vision: VisionOcrEngine | None = None
         if getattr(llm, "supports_vision", lambda: False)():
             vision = VisionOcrEngine(backend=llm)
+        opendataloader: OcrEnginePort | None = None
+        jar = os.getenv("OPENDATALOADER_JAR")
+        if jar and Path(jar).exists():
+            from dobs.infrastructure.adapters.ocr.opendataloader_engine import OpenDataLoaderOcrEngine
+            try:
+                opendataloader = OpenDataLoaderOcrEngine(jar_path=Path(jar))
+            except Exception:
+                opendataloader = None
         return CompositeOcrEngine(
             file_reader=file_reader, tesseract=tesseract, vision=vision,
+            opendataloader=opendataloader,
         )
 
     @provide

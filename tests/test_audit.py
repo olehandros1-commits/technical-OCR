@@ -1,12 +1,18 @@
 import time
 import uuid
 
-from dobs.infrastructure.adapters.audit.sqlite_audit_sink import SqliteAuditSink
+from dobs.infrastructure.adapters.audit.sqlite_audit_sink import AUDIT_SCHEMA, SqliteAuditSink
 from dobs.domain.entities.audit_record import AuditRecord
+from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
+
+
+def _make_sink(tmp_path):
+    sessions = SqliteSessionFactory(db_path=tmp_path / "audit.db", schema=AUDIT_SCHEMA)
+    return SqliteAuditSink(sessions=sessions)
 
 
 async def test_record_and_recent(tmp_path):
-    sink = SqliteAuditSink(db_path=tmp_path / "audit.db")
+    sink = _make_sink(tmp_path)
     rec = AuditRecord(
         oid=str(uuid.uuid4()),
         tier="balanced",
@@ -35,7 +41,7 @@ async def test_record_and_recent(tmp_path):
 
 
 async def test_recent_orders_by_id_desc(tmp_path):
-    sink = SqliteAuditSink(db_path=tmp_path / "audit.db")
+    sink = _make_sink(tmp_path)
     for i in range(3):
         await sink.record(time.time(), AuditRecord(oid=str(uuid.uuid4()), tier=f"t{i}"))
     rows = await sink.recent(limit=5)

@@ -41,17 +41,6 @@ from dobs.domain.services.recurring_detector import RecurringDetector
 from dobs.application.ports.llm_backend import LLMBackendPort
 
 
-def _cache_key(seg: StatementSegment, backend_name: str, tenant: str) -> str:
-    h = hashlib.sha256(
-        f"{backend_name}|{seg.text}".encode("utf-8")
-    ).hexdigest()[:16]
-    return (
-        f"{tenant}::"
-        f"{seg.period_start_raw.replace('/', '-')}_"
-        f"{seg.account_hint or 'none'}_{backend_name}_{h}"
-    )
-
-
 @dataclass(frozen=True, kw_only=True, slots=True)
 class ExtractStatementCommand:
     pdf_path: str | None = None
@@ -108,6 +97,17 @@ class ExtractStatementHandler:
         self._recurring_detector = recurring_detector
         self._lessons_helper = lessons_helper
 
+    @staticmethod
+    def _cache_key(seg: StatementSegment, backend_name: str, tenant: str) -> str:
+        h = hashlib.sha256(
+            f"{backend_name}|{seg.text}".encode("utf-8")
+        ).hexdigest()[:16]
+        return (
+            f"{tenant}::"
+            f"{seg.period_start_raw.replace('/', '-')}_"
+            f"{seg.account_hint or 'none'}_{backend_name}_{h}"
+        )
+
     async def _process_segment(
         self,
         seg: StatementSegment,
@@ -124,7 +124,7 @@ class ExtractStatementHandler:
     ) -> Statement | None:
         label = f"{seg.period_start_raw} acct {seg.account_hint or '?'}"
         backend_name = getattr(self._llm, "name", "unknown")
-        cache_key = _cache_key(seg, backend_name, command.tenant)
+        cache_key = self._cache_key(seg, backend_name, command.tenant)
 
         cached = await self._cache.get(cache_key)
         if cached is not None:

@@ -8,8 +8,6 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import aiosqlite
-
 from dobs.application.ports.ocr_engine import OcrEnginePort
 from dobs.infrastructure.adapters.ocr.file_reader import (
     CorruptDocumentError,
@@ -18,58 +16,43 @@ from dobs.infrastructure.adapters.ocr.file_reader import (
     clean_text,
     detect_kind,
 )
-
-_OCR_CACHE_PATH = Path(os.getenv("OCR_CACHE_DB", "out/ocr_cache.db"))
-
-
-async def _file_hash(path: Path) -> str:
-    def _sync() -> str:
-        h = hashlib.sha256()
-        with path.open("rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                h.update(chunk)
-        return h.hexdigest()
-
-    return await asyncio.to_thread(_sync)
+from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 
 
-async def _cache_get(file_hash: str, method: str) -> str | None:
-    if not _OCR_CACHE_PATH.exists():
-        return None
-    try:
-        async with aiosqlite.connect(_OCR_CACHE_PATH) as db:
-            async with db.execute(
-                "SELECT text FROM ocr_cache WHERE file_hash = ? AND method = ?",
-                (file_hash, method),
-            ) as cursor:
-                row = await cursor.fetchone()
-                return row[0] if row else None
-    except Exception:
-        return None
+OCR_CACHE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ocr_cache (
+    file_hash  TEXT NOT NULL,
+    method     TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (file_hash, method)
+);
+"""
 
 
-async def _cache_put(file_hash: str, text: str, method: str) -> None:
-    _OCR_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(_OCR_CACHE_PATH) as db:
-        await db.executescript(
-            "CREATE TABLE IF NOT EXISTS ocr_cache ("
-            "  file_hash  TEXT NOT NULL,"
-            "  method     TEXT NOT NULL,"
-            "  text       TEXT NOT NULL,"
-            "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-            "  PRIMARY KEY (file_hash, method)"
-            ");"
-        )
-        await db.execute(
-            "INSERT OR REPLACE INTO ocr_cache (file_hash, method, text) VALUES (?, ?, ?)",
-            (file_hash, method, text),
-        )
-        await db.commit()
+class OcrCacheStore:
+    def __init__(self, /, *, sessions: SqliteSessionFactory) -> None:
+        self._sessions = sessions
 
+    async def get(self, file_hash: str, method: str) -> str | None:
+        try:
+            async with self._sessions.read_only() as session:
+                async with session.execute(
+                    "SELECT text FROM ocr_cache WHERE file_hash = ? AND method = ?",
+                    (file_hash, method),
+                ) as cursor:
+                    row = await cursor.fetchone()
+            return row[0] if row else None
+        except Exception:
+            return None
 
-def _ocr_one_image(img: object, lang: str, config: str) -> str:
-    import pytesseract
-    return pytesseract.image_to_string(img, lang=lang, config=config)
+    async def put(self, file_hash: str, text: str, method: str) -> None:
+        async with self._sessions.session() as session:
+            await session.execute(
+                "INSERT OR REPLACE INTO ocr_cache (file_hash, method, text) "
+                "VALUES (?, ?, ?)",
+                (file_hash, method, text),
+            )
 
 
 class TesseractOcrEngine(OcrEnginePort):
@@ -78,11 +61,11 @@ class TesseractOcrEngine(OcrEnginePort):
         /,
         *,
         file_reader: FileReader,
-        cache_path: Path = _OCR_CACHE_PATH,
+        cache: OcrCacheStore | None = None,
         lang: str = "eng",
     ) -> None:
         self._file_reader = file_reader
-        self._cache_path = cache_path
+        self._cache = cache
         self._lang = lang
 
     async def extract_text(
@@ -117,28 +100,47 @@ class TesseractOcrEngine(OcrEnginePort):
             "Supported: PDF, image, xlsx, html, txt."
         )
 
+    async def _file_hash(self, path: Path) -> str:
+        def _sync() -> str:
+            h = hashlib.sha256()
+            with path.open("rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            return h.hexdigest()
+
+        return await asyncio.to_thread(_sync)
+
     async def _ocr_pdf(
         self,
         path: Path,
         log_event: Callable | None = None,
     ) -> str:
-        file_hash = await _file_hash(path)
-        cached = await _cache_get(file_hash, "tesseract")
-        if cached is not None:
+        file_hash = await self._file_hash(path)
+        if self._cache is not None:
+            cached = await self._cache.get(file_hash, "tesseract")
+            if cached is not None:
+                if log_event:
+                    log_event("ocr_cache_hit", {
+                        "file_hash": file_hash[:16],
+                        "chars": len(cached),
+                        "method": "tesseract",
+                    })
+                return cached
             if log_event:
-                log_event("ocr_cache_hit", {
-                    "file_hash": file_hash[:16], "chars": len(cached), "method": "tesseract",
-                })
-            return cached
-        if log_event:
-            log_event("ocr_cache_miss", {"file_hash": file_hash[:16], "method": "tesseract"})
+                log_event("ocr_cache_miss", {"file_hash": file_hash[:16], "method": "tesseract"})
 
         text = await self._run_tesseract(path, log_event)
-        try:
-            await _cache_put(file_hash, text, "tesseract")
-        except Exception:
-            pass
+        if self._cache is not None:
+            try:
+                await self._cache.put(file_hash, text, "tesseract")
+            except Exception:
+                pass
         return text
+
+    @staticmethod
+    def _ocr_one_image(img: object, lang: str, config: str) -> str:
+        import pytesseract
+        return pytesseract.image_to_string(img, lang=lang, config=config)
 
     async def _run_tesseract(
         self,
@@ -151,7 +153,7 @@ class TesseractOcrEngine(OcrEnginePort):
         except ImportError as exc:
             raise IngestError(
                 "Tesseract OCR requires `pdf2image` + `pytesseract` + "
-                "Tesseract binary. Install with: pip install bank-statement-extractor[ocr]"
+                "Tesseract binary. Install with: pip install dobs[ocr]"
             ) from exc
 
         dpi = int(os.getenv("OCR_DPI", "120"))
@@ -193,7 +195,9 @@ class TesseractOcrEngine(OcrEnginePort):
                     break
                 if not imgs:
                     break
-                fut = loop.run_in_executor(pool, _ocr_one_image, imgs[0], self._lang, config)
+                fut = loop.run_in_executor(
+                    pool, self._ocr_one_image, imgs[0], self._lang, config,
+                )
                 futures.append((page_idx - 1, fut))
 
         if log_event:
