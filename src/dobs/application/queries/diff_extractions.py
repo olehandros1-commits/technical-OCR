@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import Any
 
 
-def _row_key(t: dict) -> tuple:
+def _row_key(t: dict[str, Any]) -> tuple[Any, ...]:
     side = "D" if t.get("deposit") is not None else "W"
     amount = t.get("deposit") if t.get("deposit") is not None else t.get("withdrawal")
     amount = round(float(amount or 0.0), 2)
@@ -14,8 +15,8 @@ def _row_key(t: dict) -> tuple:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class DiffExtractionsQuery:
-    result_a: dict
-    result_b: dict
+    result_a: dict[str, Any]
+    result_b: dict[str, Any]
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -24,10 +25,10 @@ class DiffExtractionsResult:
     only_in_b_count: int
     changed_count: int
     common_count: int
-    only_in_a: list[dict]
-    only_in_b: list[dict]
-    changed: list[dict]
-    summary_deltas: dict
+    only_in_a: list[dict[str, Any]]
+    only_in_b: list[dict[str, Any]]
+    changed: list[dict[str, Any]]
+    summary_deltas: dict[str, Any]
 
 
 class DiffExtractionsHandler:
@@ -35,8 +36,8 @@ class DiffExtractionsHandler:
         pass
 
     async def __call__(self, query: DiffExtractionsQuery) -> DiffExtractionsResult:
-        tx_a: list[dict] = query.result_a.get("transactions") or []
-        tx_b: list[dict] = query.result_b.get("transactions") or []
+        tx_a: list[dict[str, Any]] = query.result_a.get("transactions") or []
+        tx_b: list[dict[str, Any]] = query.result_b.get("transactions") or []
 
         by_key_a = {_row_key(t): t for t in tx_a}
         by_key_b = {_row_key(t): t for t in tx_b}
@@ -45,22 +46,25 @@ class DiffExtractionsHandler:
         only_b_keys = set(by_key_b) - set(by_key_a)
         common = set(by_key_a) & set(by_key_b)
 
-        changed: list[dict] = []
+        changed: list[dict[str, Any]] = []
         for k in common:
             ra, rb = by_key_a[k], by_key_b[k]
             cmp_fields = ("description", "category", "vendor", "confidence")
-            deltas = {f: {"a": ra.get(f), "b": rb.get(f)}
-                      for f in cmp_fields
-                      if ra.get(f) != rb.get(f)}
+            deltas = {
+                f: {"a": ra.get(f), "b": rb.get(f)} for f in cmp_fields if ra.get(f) != rb.get(f)
+            }
             if deltas:
                 changed.append({"key": list(k), "fields": deltas})
 
-        def _summary_delta(sa: dict, sb: dict) -> dict:
-            out: dict = {}
+        def _summary_delta(sa: dict[str, Any], sb: dict[str, Any]) -> dict[str, Any]:
+            out: dict[str, Any] = {}
             for key in (
-                "beginning_balance", "ending_balance",
-                "deposits_total", "deposits_count",
-                "withdrawals_total", "withdrawals_count",
+                "beginning_balance",
+                "ending_balance",
+                "deposits_total",
+                "deposits_count",
+                "withdrawals_total",
+                "withdrawals_count",
             ):
                 av, bv = sa.get(key), sb.get(key)
                 if av != bv:

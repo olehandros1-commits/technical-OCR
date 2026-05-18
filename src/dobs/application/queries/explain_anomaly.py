@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 from dobs.application.ports.llm_backend import LLMBackendPort
 from dobs.domain.value_objects.llm_role import LLMRole
-
 
 _SYSTEM = """You explain why a flagged bank-statement transaction
 looks suspicious. The deterministic detector has already decided this
@@ -31,9 +31,9 @@ class ExplainAnomalyResult(BaseModel):
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class ExplainAnomalyQuery:
-    anomaly: dict
-    transaction: dict | None = None
-    context_transactions: list[dict] | None = None
+    anomaly: dict[str, Any]
+    transaction: dict[str, Any] | None = None
+    context_transactions: list[dict[str, Any]] | None = None
 
 
 class ExplainAnomalyHandler:
@@ -49,11 +49,17 @@ class ExplainAnomalyHandler:
         user = (
             "## Anomaly\n"
             + json.dumps(query.anomaly, indent=2)
-            + ("\n\n## Flagged transaction\n" + json.dumps(query.transaction, indent=2)
-               if query.transaction else "")
-            + ("\n\n## Nearby transactions for context\n" + json.dumps(
-                (query.context_transactions or [])[:10], indent=2)
-               if query.context_transactions else "")
+            + (
+                "\n\n## Flagged transaction\n" + json.dumps(query.transaction, indent=2)
+                if query.transaction
+                else ""
+            )
+            + (
+                "\n\n## Nearby transactions for context\n"
+                + json.dumps((query.context_transactions or [])[:10], indent=2)
+                if query.context_transactions
+                else ""
+            )
         )
         return await self._llm.call_structured(
             system=_SYSTEM,

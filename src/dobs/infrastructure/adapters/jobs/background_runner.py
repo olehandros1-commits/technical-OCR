@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 log = logging.getLogger(__name__)
 
 
 class BackgroundJobRunner:
     def __init__(self) -> None:
-        self._tasks: set[asyncio.Task] = set()
+        self._tasks: set[asyncio.Task[None]] = set()
 
-    def spawn(self, coro_factory: Callable[[], Awaitable[None]], *, name: str) -> asyncio.Task:
+    def spawn(
+        self, coro_factory: Callable[[], Awaitable[None]], *, name: str
+    ) -> asyncio.Task[None]:
         task = asyncio.create_task(self._wrap(coro_factory(), name=name), name=name)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)

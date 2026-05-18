@@ -14,10 +14,10 @@ from dobs.infrastructure.adapters.llm.base import StructuredOutputCaller
 T = TypeVar("T", bound=BaseModel)
 
 _MODEL_FOR_ROLE = {
-    LLMRole.CHEAP:   os.getenv("OLLAMA_MODEL_CHEAP",   "qwen2.5:7b"),
+    LLMRole.CHEAP: os.getenv("OLLAMA_MODEL_CHEAP", "qwen2.5:7b"),
     LLMRole.EXTRACT: os.getenv("OLLAMA_MODEL_EXTRACT", "qwen2.5:14b"),
-    LLMRole.REPAIR:  os.getenv("OLLAMA_MODEL_REPAIR",  "qwen2.5:14b"),
-    LLMRole.VISION:  os.getenv("OLLAMA_MODEL_VISION",  "llama3.2-vision"),
+    LLMRole.REPAIR: os.getenv("OLLAMA_MODEL_REPAIR", "qwen2.5:14b"),
+    LLMRole.VISION: os.getenv("OLLAMA_MODEL_VISION", "llama3.2-vision"),
 }
 
 _OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -40,11 +40,13 @@ class OllamaLLMBackend(StructuredOutputCaller):
             ) from exc
         self._client = AsyncClient(host=_OLLAMA_HOST)
 
-    async def _invoke(self, *, model: str, payload: dict) -> tuple[object, dict[str, int]]:
-        resp = await self._client.chat(model=model, **payload)
-        usage = {
-            "input":  resp.get("prompt_eval_count", 0) or 0,
-            "output": resp.get("eval_count",        0) or 0,
+    async def _invoke(
+        self, *, model: str, payload: dict[str, object]
+    ) -> tuple[object, dict[str, int]]:
+        resp = await self._client.chat(model=model, **payload)  # type: ignore[call-overload]  # ollama accepts kwargs as dict[str, object]
+        usage: dict[str, int] = {
+            "input": int(resp.get("prompt_eval_count", 0) or 0),
+            "output": int(resp.get("eval_count", 0) or 0),
         }
         return resp, usage
 
@@ -64,17 +66,26 @@ class OllamaLLMBackend(StructuredOutputCaller):
         cache_system: bool = True,
     ) -> T:
         model = _MODEL_FOR_ROLE[role]
-        payload = {
+        payload: dict[str, object] = {
             "messages": [
                 {"role": "system", "content": system + _JSON_GUARD},
-                {"role": "user",   "content": user},
+                {"role": "user", "content": user},
             ],
             "format": response_model.model_json_schema(),
             "options": {"num_ctx": _NUM_CTX, "temperature": 0.0},
         }
+
+        def _parse_structured(resp: object) -> T:
+            return response_model.model_validate(
+                json.loads(resp["message"]["content"])  # type: ignore[index]  # ollama response
+            )
+
         return await self._retry_loop(
-            model=model, role=role, payload=payload, max_retries=max_retries,
-            parse=lambda resp: response_model.model_validate(json.loads(resp["message"]["content"])),
+            model=model,
+            role=role,
+            payload=payload,
+            max_retries=max_retries,
+            parse=_parse_structured,
         )
 
     async def call_vision(
@@ -87,7 +98,7 @@ class OllamaLLMBackend(StructuredOutputCaller):
         max_retries: int = 6,
     ) -> T:
         model = _MODEL_FOR_ROLE[LLMRole.VISION]
-        payload = {
+        payload: dict[str, object] = {
             "messages": [
                 {"role": "system", "content": system + _JSON_GUARD},
                 {
@@ -99,9 +110,18 @@ class OllamaLLMBackend(StructuredOutputCaller):
             "format": response_model.model_json_schema(),
             "options": {"num_ctx": _NUM_CTX, "temperature": 0.0},
         }
+
+        def _parse_vision(resp: object) -> T:
+            return response_model.model_validate(
+                json.loads(resp["message"]["content"])  # type: ignore[index]  # ollama response
+            )
+
         return await self._retry_loop(
-            model=model, role=LLMRole.VISION, payload=payload, max_retries=max_retries,
-            parse=lambda resp: response_model.model_validate(json.loads(resp["message"]["content"])),
+            model=model,
+            role=LLMRole.VISION,
+            payload=payload,
+            max_retries=max_retries,
+            parse=_parse_vision,
         )
 
     def supports_vision(self) -> bool:

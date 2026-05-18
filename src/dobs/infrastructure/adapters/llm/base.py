@@ -4,7 +4,8 @@ import asyncio
 import json as _json
 import time
 from abc import ABC, abstractmethod
-from typing import Awaitable, Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 from pydantic import BaseModel
 
@@ -20,7 +21,7 @@ def coerce_to_model(raw: object, model: type[BaseModel]) -> BaseModel:
     except Exception as strict_err:
         if not isinstance(raw, dict):
             raise strict_err
-        coerced: dict = {}
+        coerced: dict[str, object] = {}
         for k, v in raw.items():
             if isinstance(v, str) and v.lstrip().startswith(("[", "{")):
                 try:
@@ -40,7 +41,9 @@ class StructuredOutputCaller(ABC):
         self.name = name
 
     @abstractmethod
-    async def _invoke(self, *, model: str, payload: dict) -> tuple[object, dict[str, int]]:
+    async def _invoke(
+        self, *, model: str, payload: dict[str, object]
+    ) -> tuple[object, dict[str, int]]:
         """Provider-specific call. Returns (raw_response_for_parsing, token_usage)."""
         raise NotImplementedError
 
@@ -54,7 +57,7 @@ class StructuredOutputCaller(ABC):
         *,
         model: str,
         role: LLMRole,
-        payload: dict,
+        payload: dict[str, object],
         parse: Callable[[object], T],
         max_retries: int,
         cost_fn: Callable[[str, dict[str, int]], float] | None = None,
@@ -66,17 +69,19 @@ class StructuredOutputCaller(ABC):
             try:
                 raw_resp, usage = await self._invoke(model=model, payload=payload)
                 cost = cost_fn(model, usage) if cost_fn else 0.0
-                self._telemetry.record(CallStats(
-                    backend=self.name,
-                    model=model,
-                    role=role.value,
-                    input_tokens=usage.get("input", 0),
-                    output_tokens=usage.get("output", 0),
-                    cache_read_tokens=usage.get("cache_read", 0),
-                    cache_write_tokens=usage.get("cache_write", 0),
-                    elapsed_s=round(time.monotonic() - t0, 3),
-                    cost_usd=cost,
-                ))
+                self._telemetry.record(
+                    CallStats(
+                        backend=self.name,
+                        model=model,
+                        role=role.value,
+                        input_tokens=usage.get("input", 0),
+                        output_tokens=usage.get("output", 0),
+                        cache_read_tokens=usage.get("cache_read", 0),
+                        cache_write_tokens=usage.get("cache_write", 0),
+                        elapsed_s=round(time.monotonic() - t0, 3),
+                        cost_usd=cost,
+                    )
+                )
                 return parse(raw_resp)
             except Exception as e:
                 last_exc = e

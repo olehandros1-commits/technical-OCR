@@ -14,7 +14,7 @@ def _normalise_key(raw: str) -> str:
     return re.sub(r"\s+", " ", (raw or "").strip().lower())[:80]
 
 
-def _load_seeds(path: Path) -> dict[str, dict]:
+def _load_seeds(path: Path) -> dict[str, dict[str, object]]:
     if not path.exists():
         return {}
     try:
@@ -31,7 +31,7 @@ class SeedVendorLookup(VendorLookupPort):
         *,
         seeds_path: Path = _SEEDS_PATH,
     ) -> None:
-        self._seeds: dict[str, dict] = _load_seeds(seeds_path)
+        self._seeds: dict[str, dict[str, object]] = _load_seeds(seeds_path)
 
     async def lookup(self, raw: str) -> VendorInfo:
         raw = (raw or "").strip()
@@ -52,8 +52,8 @@ class SeedVendorLookup(VendorLookupPort):
 
         return VendorInfo(
             raw=raw,
-            canonical_name=seed.get("name") or raw.title(),
-            logo_url=seed.get("logo_url"),
-            country=seed.get("country"),
-            category=seed.get("category"),
+            canonical_name=str(seed.get("name") or raw.title()),
+            logo_url=str(seed["logo_url"]) if seed.get("logo_url") else None,
+            country=str(seed["country"]) if seed.get("country") else None,
+            category=str(seed["category"]) if seed.get("category") else None,
         )

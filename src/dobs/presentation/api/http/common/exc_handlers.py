@@ -43,9 +43,15 @@ def _internal_error_handler(request: Request, exc: Exception) -> JSONResponse:
 
 
 def map_exc_handlers(app: FastAPI) -> None:
-    app.add_exception_handler(ExtractionJobNotFoundError, partial(_domain_error_handler, status_code=404))
-    app.add_exception_handler(StatementAlreadyCachedError, partial(_domain_error_handler, status_code=409))
+    app.add_exception_handler(
+        ExtractionJobNotFoundError, partial(_domain_error_handler, status_code=404)
+    )
+    app.add_exception_handler(
+        StatementAlreadyCachedError, partial(_domain_error_handler, status_code=409)
+    )
     app.add_exception_handler(InvalidPeriodError, partial(_domain_error_handler, status_code=422))
-    app.add_exception_handler(InvalidTransactionError, partial(_domain_error_handler, status_code=422))
+    app.add_exception_handler(
+        InvalidTransactionError, partial(_domain_error_handler, status_code=422)
+    )
     app.add_exception_handler(ReconciliationError, partial(_domain_error_handler, status_code=422))
     app.add_exception_handler(Exception, _internal_error_handler)

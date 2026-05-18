@@ -5,22 +5,24 @@ from datetime import date, datetime
 
 from dobs.domain.value_objects.raw_row import RawRow
 
-
 _MONTH = r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec"
 _DATE_RE = re.compile(rf"\b({_MONTH})\s+(\d{{1,2}})\b", re.IGNORECASE)
 _AMOUNT_RE = re.compile(r"-?\$?\d{1,3}(?:,\d{3})*\.\d{2}\b")
 
 _BALANCE_MARKERS = (
-    "BEGINNING BALANCE", "ENDING BALANCE",
-    "OPENING BALANCE",   "CLOSING BALANCE",
-    "TOTAL DEPOSITS",    "TOTAL WITHDRAWALS",
+    "BEGINNING BALANCE",
+    "ENDING BALANCE",
+    "OPENING BALANCE",
+    "CLOSING BALANCE",
+    "TOTAL DEPOSITS",
+    "TOTAL WITHDRAWALS",
     "PRIOR BALANCE",
 )
 
 _MONTH_TO_NUM = {
-    m: i + 1 for i, m in enumerate(
-        ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    m: i + 1
+    for i, m in enumerate(
+        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     )
 }
 
@@ -73,7 +75,7 @@ class RowParser:
             chunk_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
             chunk = text[chunk_start:chunk_end].strip()
 
-            body = chunk[m.end() - m.start():].strip()
+            body = chunk[m.end() - m.start() :].strip()
 
             amts_iter = list(_AMOUNT_RE.finditer(body))
             if not amts_iter:
@@ -100,16 +102,18 @@ class RowParser:
             if len(amount_floats) > 3:
                 confidence -= 0.2
 
-            rows.append(RawRow(
-                date_iso=date_iso,
-                description=desc,
-                amounts=tuple(tx_amounts),
-                balance=balance,
-                raw=chunk,
-                confidence=max(0.0, confidence),
-                is_check=is_check,
-                likely_marker=is_marker,
-            ))
+            rows.append(
+                RawRow(
+                    date_iso=date_iso,
+                    description=desc,
+                    amounts=tuple(tx_amounts),
+                    balance=balance,
+                    raw=chunk,
+                    confidence=max(0.0, confidence),
+                    is_check=is_check,
+                    likely_marker=is_marker,
+                )
+            )
 
         return rows
 

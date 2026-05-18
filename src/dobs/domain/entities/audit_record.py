@@ -20,4 +20,4 @@ class AuditRecord(Entity[UUID]):
     prompts_hash: str = ""
     operator: str | None = None
     client_ip: str | None = None
-    metadata: dict = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=dict)

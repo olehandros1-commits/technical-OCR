@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 def client():
     os.environ["EXTRACTOR_DEMO_REPLAY"] = "1"
     from dobs.api import app
+
     return TestClient(app)
 
 
@@ -91,10 +92,13 @@ def test_cache_keys_endpoint(client):
 
 def test_diff_endpoint_roundtrip(client):
     stmt = {
-        "account": {"period": {"start": "2025-04-01", "end": "2025-04-30"},
-                    "account_last4": "4664"},
+        "account": {
+            "period": {"start": "2025-04-01", "end": "2025-04-30"},
+            "account_last4": "4664",
+        },
         "summary": {
-            "beginning_balance": 100, "ending_balance": 100,
+            "beginning_balance": 100,
+            "ending_balance": 100,
             "deposits_total": 0,
             "withdrawals_total": 0,
         },

@@ -32,11 +32,7 @@ class SpendGuard:
         async with self._lock:
             self._spent += delta_usd
             ratio = self._spent / self._cap_usd if self._cap_usd > 0 else 0.0
-            if (
-                not self._warned
-                and ratio >= self._warn_at_ratio
-                and self._cap_usd != float("inf")
-            ):
+            if not self._warned and ratio >= self._warn_at_ratio and self._cap_usd != float("inf"):
                 warn = True
                 self._warned = True
             if self._cap_usd != float("inf") and self._spent > self._cap_usd:

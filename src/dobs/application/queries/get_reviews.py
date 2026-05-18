@@ -19,6 +19,6 @@ class GetReviewsHandler:
     ) -> None:
         self._review_store = review_store
 
-    async def __call__(self, query: GetReviewsQuery) -> list[dict]:
+    async def __call__(self, query: GetReviewsQuery) -> list[dict[str, object]]:
         latest = await self._review_store.latest_for_statement(query.statement_key)
         return list(latest.values())

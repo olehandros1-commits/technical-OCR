@@ -18,7 +18,7 @@ router = APIRouter(
 async def get_cache_keys(
     handler: FromDishka[GetCacheKeysHandler],
     limit: int = Query(default=200, ge=1, le=1000),
-) -> dict:
+) -> dict[str, object]:
     result = await handler(GetCacheKeysQuery(limit=limit))
     return {"keys": result}
 
@@ -27,7 +27,7 @@ async def get_cache_keys(
 async def delete_cache_key(
     key: str,
     handler: FromDishka[BustCacheHandler],
-) -> dict:
+) -> dict[str, object]:
     deleted = await handler(BustCacheCommand(key=key))
     return {"deleted": deleted, "key": key}
 
@@ -35,6 +35,6 @@ async def delete_cache_key(
 @router.post("/clear", status_code=status.HTTP_200_OK)
 async def clear_cache(
     handler: FromDishka[ClearCacheHandler],
-) -> dict:
+) -> dict[str, object]:
     count = await handler(ClearCacheCommand())
     return {"cleared": count}

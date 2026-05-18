@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from dobs.application.commands.extraction.extract_statement import (
     ExtractStatementCommand,
@@ -26,11 +27,11 @@ class ReplayingExtractHandler:
         self._replay = replay_player
         self._event_bus = event_bus
 
-    async def __call__(self, command: ExtractStatementCommand) -> list:
+    async def __call__(self, command: ExtractStatementCommand) -> list[Any]:
         if is_replay_enabled():
             bus = self._event_bus
 
-            def log_event(name: str, data: dict) -> None:
+            def log_event(name: str, data: dict[str, Any]) -> None:
                 try:
                     loop = asyncio.get_running_loop()
                     loop.create_task(bus.publish(name, data))

@@ -8,7 +8,6 @@ from statistics import mean, median
 from dobs.domain.value_objects.recurring_group import RecurringGroup
 from dobs.domain.value_objects.transaction import Transaction
 
-
 _NORMALISE_RE = re.compile(r"[^a-z0-9 ]+")
 _DIGIT_RUN_RE = re.compile(r"\b\d{4,}\b")
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -57,15 +56,17 @@ class RecurringDetector:
         for (vendor_key, side), items in by_key.items():
             if len(items) < min_occurrences:
                 continue
-            amounts = [(it[1].deposit if side == "deposit" else it[1].withdrawal) or 0.0
-                       for it in items]
+            amounts = [
+                (it[1].deposit if side == "deposit" else it[1].withdrawal) or 0.0 for it in items
+            ]
             if not amounts:
                 continue
             avg_amt = mean(amounts)
             cluster = [
-                (i, t) for i, t in items
+                (i, t)
+                for i, t in items
                 if abs(((t.deposit if side == "deposit" else t.withdrawal) or 0) - avg_amt)
-                   <= max(amount_tolerance, avg_amt * 0.05)
+                <= max(amount_tolerance, avg_amt * 0.05)
             ]
             if len(cluster) < min_occurrences:
                 continue
@@ -86,17 +87,20 @@ class RecurringDetector:
                 continue
             if min(gaps) > 0 and max(gaps) / min(gaps) > 4:
                 continue
-            amts = [(it[1].deposit if side == "deposit" else it[1].withdrawal) or 0
-                    for it in cluster]
+            amts = [
+                (it[1].deposit if side == "deposit" else it[1].withdrawal) or 0 for it in cluster
+            ]
             next_date = (dates[-1] + timedelta(days=int(round(med_gap)))).isoformat()
-            groups.append(RecurringGroup(
-                vendor_key=vendor_key,
-                side=side,
-                avg_amount=mean(amts),
-                cadence_days=med_gap,
-                cadence_label=self._cadence_label(med_gap),
-                occurrences=tuple(i for i, _ in cluster),
-                next_predicted_date=next_date,
-            ))
+            groups.append(
+                RecurringGroup(
+                    vendor_key=vendor_key,
+                    side=side,
+                    avg_amount=mean(amts),
+                    cadence_days=med_gap,
+                    cadence_label=self._cadence_label(med_gap),
+                    occurrences=tuple(i for i, _ in cluster),
+                    next_predicted_date=next_date,
+                )
+            )
         groups.sort(key=lambda g: (-len(g.occurrences), -g.avg_amount))
         return groups

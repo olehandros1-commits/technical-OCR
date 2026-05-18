@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+from typing import Any
 
 from dobs.application.commands.extraction.extract_statement import ExtractStatementCommand
 
@@ -9,9 +10,9 @@ from dobs.application.commands.extraction.extract_statement import ExtractStatem
 class ArqJobQueue:
     def __init__(self, /, *, redis_url: str) -> None:
         self._redis_url = redis_url
-        self._pool = None
+        self._pool: Any = None
 
-    async def _ensure_pool(self):
+    async def _ensure_pool(self) -> Any:
         if self._pool is None:
             from arq import create_pool
             from arq.connections import RedisSettings

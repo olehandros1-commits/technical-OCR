@@ -9,8 +9,9 @@ def parse_rows(*args, **kwargs):
 
 def filter_transaction_rows(*args, **kwargs):
     return _parser.filter_transactions(*args, **kwargs)
-from dobs.domain.value_objects.raw_row import RawRow
 
+
+from dobs.domain.value_objects.raw_row import RawRow
 
 _SAMPLE_FLOWING = (
     "Apr 01 AIRLINEHYD 2759/VENDOR PMT 1,809.28 598,877.98 "
@@ -62,10 +63,8 @@ def test_balance_markers_flagged_and_filtered():
 
 def test_filter_drops_empty_description():
     rows = [
-        RawRow(date_iso="2025-04-01", description="", amounts=(1.0,),
-               balance=None, raw=""),
-        RawRow(date_iso="2025-04-01", description="OK", amounts=(1.0,),
-               balance=None, raw=""),
+        RawRow(date_iso="2025-04-01", description="", amounts=(1.0,), balance=None, raw=""),
+        RawRow(date_iso="2025-04-01", description="OK", amounts=(1.0,), balance=None, raw=""),
     ]
     kept = filter_transaction_rows(rows)
     assert len(kept) == 1

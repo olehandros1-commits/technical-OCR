@@ -163,17 +163,16 @@ class FileReader:
         except Exception:
             return False
 
-    def _table_to_markdown(self, table: list[list[object]]) -> str:
+    def _table_to_markdown(self, table: list[list[str | None]]) -> str:
         if not table or len(table) < 2:
             return ""
         cleaned: list[list[str]] = []
         for row in table:
             if all(c is None or str(c).strip() == "" for c in row):
                 continue
-            cleaned.append([
-                (str(c) if c is not None else "").strip().replace("|", "/")[:80]
-                for c in row
-            ])
+            cleaned.append(
+                [(str(c) if c is not None else "").strip().replace("|", "/")[:80] for c in row]
+            )
         if len(cleaned) < 2:
             return ""
         header = cleaned[0]
@@ -182,8 +181,8 @@ class FileReader:
             "| " + " | ".join(header) + " |",
             "| " + " | ".join(sep) + " |",
         ]
-        for row in cleaned[1:]:
-            if len(row) < len(header):
-                row = row + [""] * (len(header) - len(row))
-            lines.append("| " + " | ".join(row[: len(header)]) + " |")
+        for clean_row in cleaned[1:]:
+            if len(clean_row) < len(header):
+                clean_row = clean_row + [""] * (len(header) - len(clean_row))
+            lines.append("| " + " | ".join(clean_row[: len(header)]) + " |")
         return "\n".join(lines)

@@ -11,5 +11,5 @@ class OcrEnginePort(Protocol):
         self,
         path: str,
         *,
-        log_event: Callable | None = None,
+        log_event: Callable[..., object] | None = None,
     ) -> str: ...

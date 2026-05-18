@@ -8,11 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from dobs.application.ports.llm_backend import LLMBackendPort
 from dobs.domain.services.prompt_sanitizer import PromptSanitizer
-from dobs.domain.services.row_parser import RawRow, RowParser
+from dobs.domain.services.row_parser import RowParser
 from dobs.domain.value_objects.llm_role import LLMRole
+from dobs.domain.value_objects.raw_row import RawRow
 from dobs.domain.value_objects.skipped_row import SkippedRow
 from dobs.domain.value_objects.transaction import Transaction
-
 
 _VALIDATOR_SYSTEM = """You are validating pre-extracted bank statement
 transactions. A regex parser has already pulled candidate rows from the
@@ -57,17 +57,19 @@ class _TransactionsResult(BaseModel):
     skipped_rows: list[SkippedRow] = Field(default_factory=list)
 
 
-def _records_for_llm(rows: list[RawRow]) -> list[dict]:
-    out: list[dict] = []
+def _records_for_llm(rows: list[RawRow]) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
     for i, r in enumerate(rows):
-        out.append({
-            "index": i,
-            "date": r.date_iso,
-            "desc": r.description[:120],
-            "amounts": [round(a, 2) for a in r.amounts],
-            "balance": round(r.balance, 2) if r.balance is not None else None,
-            "is_check": r.is_check,
-        })
+        out.append(
+            {
+                "index": i,
+                "date": r.date_iso,
+                "desc": r.description[:120],
+                "amounts": [round(a, 2) for a in r.amounts],
+                "balance": round(r.balance, 2) if r.balance is not None else None,
+                "is_check": r.is_check,
+            }
+        )
     return out
 
 
@@ -99,15 +101,15 @@ class ExtractTransactionsHybridHandler:
         extra_hint: str = "",
     ) -> _TransactionsResult:
         from dobs.domain.prompts import TRANSACTIONS_SYSTEM
+
         wrapped, _ = self._sanitizer.safe_wrap(segment_text)
         user = (
             f"Statement period: {period_start} to {period_end}\n"
             + (extra_hint + "\n\n" if extra_hint else "")
             + "Extract every transaction from EVERY section (Miscellaneous "
-              "Debits & Credits, Checks Paid, etc.) and return as a JSON "
-              "object. Skip 'BEGINNING BALANCE' / 'ENDING BALANCE' marker "
-              "rows and ignore the DAILY BALANCE SUMMARY block.\n\n"
-            + wrapped
+            "Debits & Credits, Checks Paid, etc.) and return as a JSON "
+            "object. Skip 'BEGINNING BALANCE' / 'ENDING BALANCE' marker "
+            "rows and ignore the DAILY BALANCE SUMMARY block.\n\n" + wrapped
         )
         return await self._llm.call_structured(
             system=TRANSACTIONS_SYSTEM,
@@ -156,18 +158,22 @@ class ExtractTransactionsHybridHandler:
         for v in resp.rows:
             if not v.keep:
                 if 0 <= v.index < len(candidates):
-                    skipped.append(SkippedRow(
-                        raw=candidates[v.index].raw,
-                        reason=f"validator dropped row {v.index}",
-                    ))
+                    skipped.append(
+                        SkippedRow(
+                            raw=candidates[v.index].raw,
+                            reason=f"validator dropped row {v.index}",
+                        )
+                    )
                 continue
             amount = round(v.amount, 2)
             deposit = amount if v.side == "deposit" else None
             withdrawal = amount if v.side == "withdrawal" else None
-            transactions.append(Transaction(
-                date=v.date,
-                description=v.description,
-                deposit=deposit,
-                withdrawal=withdrawal,
-            ))
+            transactions.append(
+                Transaction(
+                    date=v.date,
+                    description=v.description,
+                    deposit=deposit,
+                    withdrawal=withdrawal,
+                )
+            )
         return _TransactionsResult(transactions=transactions, skipped_rows=skipped)

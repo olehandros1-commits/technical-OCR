@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Protocol
+from collections.abc import AsyncIterator
+from typing import Any, Protocol
 
 from dobs.application.commands.extraction.extract_statement import ExtractStatementCommand
 
@@ -10,17 +11,19 @@ class JobQueuePort(Protocol):
 
 
 class JobStorePort(Protocol):
-    async def write_event(self, job_id: str, event: dict) -> None: ...
+    async def write_event(self, job_id: str, event: dict[str, object]) -> None: ...
 
-    async def read_events(self, job_id: str): ...
+    def read_events(self, job_id: str) -> AsyncIterator[dict[str, Any]]: ...
 
     async def write_result(
         self,
         job_id: str,
-        result: list[dict] | None = None,
+        result: list[dict[str, object]] | None = None,
         error: str | None = None,
     ) -> None: ...
 
-    async def read_result(self, job_id: str) -> tuple[list[dict] | None, str | None, bool]: ...
+    async def read_result(
+        self, job_id: str
+    ) -> tuple[list[dict[str, object]] | None, str | None, bool]: ...
 
     async def exists(self, job_id: str) -> bool: ...

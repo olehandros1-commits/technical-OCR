@@ -3,7 +3,6 @@ from __future__ import annotations
 from dobs.application.ports.review_store import Decision, ReviewStorePort
 from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 
-
 REVIEW_SCHEMA = """
 CREATE TABLE IF NOT EXISTS reviews (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,9 +37,9 @@ class SqliteReviewStore(ReviewStorePort):
                 "VALUES (?, ?, ?, ?, ?)",
                 (statement_key, tx_index, decision, reviewer, note),
             )
-            return cursor.lastrowid
+            return cursor.lastrowid or 0
 
-    async def latest_for_statement(self, statement_key: str) -> dict[int, dict]:
+    async def latest_for_statement(self, statement_key: str) -> dict[int, dict[str, object]]:
         async with self._sessions.read_only() as session:
             async with session.execute(
                 "SELECT tx_index, decision, reviewer, note FROM reviews r1 "
@@ -63,7 +62,7 @@ class SqliteReviewStore(ReviewStorePort):
             for row in rows
         }
 
-    async def history(self, statement_key: str, tx_index: int) -> list[dict]:
+    async def history(self, statement_key: str, tx_index: int) -> list[dict[str, object]]:
         async with self._sessions.read_only() as session:
             async with session.execute(
                 "SELECT decision, reviewer, note FROM reviews "

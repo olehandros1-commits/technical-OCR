@@ -1,7 +1,7 @@
 import pytest
 
-from dobs.application.services.spend_guard import SpendGuard as SpendCap
 from dobs.application.errors import SpendCapExceededError
+from dobs.application.services.spend_guard import SpendGuard as SpendCap
 
 
 async def test_default_cap_is_unlimited():

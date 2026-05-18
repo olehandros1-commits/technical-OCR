@@ -1,7 +1,6 @@
-import os
 import pytest
 
-from dobs.application.config import PREMIUM, BALANCED, LOCAL, CHEAP, TierRegistry
+from dobs.application.config import BALANCED, CHEAP, LOCAL, PREMIUM, TierRegistry
 
 
 def test_catalog_has_four_tiers():

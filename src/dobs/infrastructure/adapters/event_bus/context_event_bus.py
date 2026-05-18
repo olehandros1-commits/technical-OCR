@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Iterator
 
 from dobs.application.ports.event_bus import EventBusPort
 
@@ -13,7 +13,7 @@ _current_bus: ContextVar[EventBusPort | None] = ContextVar("dobs_event_bus", def
 
 
 class ContextEventBus(EventBusPort):
-    async def publish(self, event_name: str, data: dict) -> None:
+    async def publish(self, event_name: str, data: dict[str, object]) -> None:
         bus = _current_bus.get()
         if bus is None:
             log.debug("publish(%s) outside bound context — dropped", event_name)

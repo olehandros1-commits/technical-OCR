@@ -47,19 +47,20 @@ class ContinuityAuditor:
             for prev, nxt in zip(group_sorted, group_sorted[1:]):
                 prev_end_date = self._parse_iso(prev.account.period.end)
                 next_start_date = self._parse_iso(nxt.account.period.start)
-                if (prev_end_date and next_start_date
-                        and (next_start_date - prev_end_date).days > 5):
+                if prev_end_date and next_start_date and (next_start_date - prev_end_date).days > 5:
                     continue
                 expected = prev.summary.ending_balance
                 actual = nxt.summary.beginning_balance
                 delta = round(actual - expected, 2)
                 if abs(delta) > tolerance:
-                    issues.append(ContinuityIssue(
-                        account_last4=prev.account.account_last4,
-                        prev_period=prev.account.period.start,
-                        next_period=nxt.account.period.start,
-                        expected_beginning=expected,
-                        actual_beginning=actual,
-                        delta=delta,
-                    ))
+                    issues.append(
+                        ContinuityIssue(
+                            account_last4=prev.account.account_last4,
+                            prev_period=prev.account.period.start,
+                            next_period=nxt.account.period.start,
+                            expected_beginning=expected,
+                            actual_beginning=actual,
+                            delta=delta,
+                        )
+                    )
         return issues

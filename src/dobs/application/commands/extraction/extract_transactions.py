@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import re
-from dataclasses import dataclass, field
-
-from pydantic import BaseModel, ConfigDict, Field
+from dataclasses import dataclass
 
 from dobs.application.commands.extraction.extract_transactions_hybrid import (
     ExtractTransactionsHybridCommand,
@@ -13,13 +10,12 @@ from dobs.application.commands.extraction.extract_transactions_hybrid import (
 )
 from dobs.application.ports.lessons_store import LessonsStorePort
 from dobs.application.ports.llm_backend import LLMBackendPort
-from dobs.application.services.chunking import TransactionChunker
+from dobs.application.services.chunking import TransactionChunk, TransactionChunker
 from dobs.application.services.lessons_helpers import LessonsHelper
 from dobs.domain.prompts import TRANSACTIONS_SYSTEM
 from dobs.domain.services.prompt_sanitizer import PromptSanitizer
 from dobs.domain.value_objects.llm_role import LLMRole
 from dobs.domain.value_objects.skipped_row import SkippedRow
-from dobs.domain.value_objects.transaction import Transaction
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -72,10 +68,9 @@ class ExtractTransactionsHandler:
             f"Statement period: {period_start} to {period_end}\n"
             + (extra_hint + "\n\n" if extra_hint else "")
             + "Extract every transaction from EVERY section (Miscellaneous "
-              "Debits & Credits, Checks Paid, etc.) and return as a JSON "
-              "object. Skip 'BEGINNING BALANCE' / 'ENDING BALANCE' marker "
-              "rows and ignore the DAILY BALANCE SUMMARY block.\n\n"
-            + wrapped
+            "Debits & Credits, Checks Paid, etc.) and return as a JSON "
+            "object. Skip 'BEGINNING BALANCE' / 'ENDING BALANCE' marker "
+            "rows and ignore the DAILY BALANCE SUMMARY block.\n\n" + wrapped
         )
         return await self._llm.call_structured(
             system=system,
@@ -115,7 +110,7 @@ class ExtractTransactionsHandler:
                 command.segment_text, command.period_start, command.period_end
             )
 
-        async def _run_chunk(c) -> _TransactionsResult:
+        async def _run_chunk(c: TransactionChunk) -> _TransactionsResult:
             try:
                 return await self._single_call(
                     c.text, command.period_start, command.period_end, c.hint()
@@ -126,7 +121,9 @@ class ExtractTransactionsHandler:
                     skipped_rows=[SkippedRow(raw="", reason=f"chunk error: {exc}")],
                 )
 
-        results = await asyncio.gather(*(_run_chunk(c) for c in chunks))
+        async with asyncio.TaskGroup() as tg:
+            tasks = [tg.create_task(_run_chunk(c)) for c in chunks]
+        results = [t.result() for t in tasks]
         merged = self._chunker.merge(r.transactions for r in results)
         skipped = [s for r in results for s in r.skipped_rows]
         return _TransactionsResult(transactions=merged, skipped_rows=skipped)

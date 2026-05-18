@@ -1,5 +1,3 @@
-import pytest
-
 from dobs.infrastructure.adapters.event_bus.store_event_bus import StoreEventBus
 from dobs.infrastructure.adapters.jobs.memory_job_store import MemoryJobStore
 

@@ -16,12 +16,12 @@ router = APIRouter(
 
 
 @router.get("")
-async def get_telemetry(handler: FromDishka[GetTelemetryHandler]) -> dict:
+async def get_telemetry(handler: FromDishka[GetTelemetryHandler]) -> dict[str, object]:
     result = await handler(GetTelemetryQuery())
     return result
 
 
 @router.get("/tiers")
-async def get_tiers(handler: FromDishka[GetTiersHandler]) -> dict:
+async def get_tiers(handler: FromDishka[GetTiersHandler]) -> dict[str, object]:
     result = await handler(GetTiersQuery())
     return {"tiers": [dataclasses.asdict(t) for t in result]}

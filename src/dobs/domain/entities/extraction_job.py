@@ -7,7 +7,6 @@ from uuid import UUID
 
 from dobs.domain.entities.base import Entity
 
-
 JobStatus = Literal["pending", "running", "done", "failed"]
 
 

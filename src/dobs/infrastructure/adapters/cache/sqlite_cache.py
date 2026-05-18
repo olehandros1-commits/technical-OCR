@@ -4,6 +4,7 @@ import asyncio
 import json
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import aiosqlite
@@ -18,7 +19,6 @@ from dobs.domain.value_objects.recurring_group import RecurringGroup
 from dobs.domain.value_objects.skipped_row import SkippedRow
 from dobs.domain.value_objects.summary import Summary
 from dobs.domain.value_objects.transaction import Transaction
-
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS statements (
@@ -37,7 +37,7 @@ def _statement_to_json(statement: Statement) -> str:
     return json.dumps(d)
 
 
-def _statement_from_dict(d: dict) -> Statement:
+def _statement_from_dict(d: dict[str, Any]) -> Statement:
     account_d = d["account"]
     period_d = account_d["period"]
     account = Account(
@@ -70,10 +70,7 @@ def _statement_from_dict(d: dict) -> Statement:
         )
         for t in d.get("transactions", [])
     ]
-    skipped_rows = [
-        SkippedRow(raw=s["raw"], reason=s["reason"])
-        for s in d.get("skipped_rows", [])
-    ]
+    skipped_rows = [SkippedRow(raw=s["raw"], reason=s["reason"]) for s in d.get("skipped_rows", [])]
     rec_d = d.get("reconciliation")
     reconciliation: ReconciliationResult | None = None
     if rec_d is not None:
@@ -136,7 +133,7 @@ class SqliteStatementCache(StatementCachePort):
             return
         async with self._init_lock:
             if self._initialised:
-                return
+                return  # type: ignore[unreachable]  # double-checked lock
             async with aiosqlite.connect(self._db_path) as db:
                 await db.executescript(_SCHEMA)
                 await db.commit()
@@ -145,9 +142,7 @@ class SqliteStatementCache(StatementCachePort):
     async def get(self, key: str) -> Statement | None:
         await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute(
-                "SELECT payload FROM statements WHERE key = ?", (key,)
-            ) as cursor:
+            async with db.execute("SELECT payload FROM statements WHERE key = ?", (key,)) as cursor:
                 row = await cursor.fetchone()
         if row is None:
             return None
@@ -159,8 +154,7 @@ class SqliteStatementCache(StatementCachePort):
         reconciled = int(statement.reconciliation.ok if statement.reconciliation else 0)
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
-                "INSERT OR REPLACE INTO statements (key, payload, reconciled) "
-                "VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO statements (key, payload, reconciled) VALUES (?, ?, ?)",
                 (key, payload, reconciled),
             )
             await db.commit()
@@ -168,9 +162,7 @@ class SqliteStatementCache(StatementCachePort):
     async def delete(self, key: str) -> bool:
         await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
-            cursor = await db.execute(
-                "DELETE FROM statements WHERE key = ?", (key,)
-            )
+            cursor = await db.execute("DELETE FROM statements WHERE key = ?", (key,))
             await db.commit()
             return cursor.rowcount > 0
 
@@ -181,7 +173,7 @@ class SqliteStatementCache(StatementCachePort):
             await db.commit()
             return cursor.rowcount
 
-    async def keys(self, limit: int = 200) -> list[dict]:
+    async def keys(self, limit: int = 200) -> list[dict[str, object]]:
         await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
@@ -192,13 +184,13 @@ class SqliteStatementCache(StatementCachePort):
                 rows = await cursor.fetchall()
         return [{"key": k, "created_at": c, "reconciled": bool(r)} for k, c, r in rows]
 
-    async def stats(self) -> dict:
+    async def stats(self) -> dict[str, object]:
         await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute("SELECT COUNT(*) FROM statements") as cursor:
-                total = (await cursor.fetchone())[0]
-            async with db.execute(
-                "SELECT COUNT(*) FROM statements WHERE reconciled = 1"
-            ) as cursor:
-                ok = (await cursor.fetchone())[0]
+                total_row = await cursor.fetchone()
+                total = total_row[0] if total_row is not None else 0
+            async with db.execute("SELECT COUNT(*) FROM statements WHERE reconciled = 1") as cursor:
+                ok_row = await cursor.fetchone()
+                ok = ok_row[0] if ok_row is not None else 0
         return {"total": total, "reconciled": ok}

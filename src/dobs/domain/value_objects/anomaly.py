@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-
 AnomalyKind = Literal[
     "duplicate_pair",
     "date_out_of_period",

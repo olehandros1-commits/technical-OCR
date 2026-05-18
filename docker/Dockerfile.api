@@ -1,28 +1,23 @@
-# Production API image.
-# Build:  docker compose build api      (recommended)
-#    or:  docker build -f Dockerfile.api -t bse-api .
-# Run:    docker run -p 8000:8000 -e ANTHROPIC_API_KEY=... bse-api
-FROM python:3.12-slim
+FROM ghcr.io/astral-sh/uv:0.5-python3.12-bookworm-slim
 
-# Tesseract for OCR fallback, poppler-utils for pdf2image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       tesseract-ocr poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy pyproject first so pip dependency layer is cached when source changes.
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
 
-# Extras: ocr (Tesseract), redis (multi-host cache), ollama (local-LLM
-# backend talking to a host-side Ollama via host.docker.internal).
-# grpc / streamlit / otel are still off here -- the API doesn't need them
-# to serve cloud or local backends.
-RUN pip install --no-cache-dir -e ".[ocr,redis,ollama,queue]"
+ENV UV_LINK_MODE=copy
+RUN uv sync --frozen --no-dev \
+    --extra ocr --extra redis --extra ollama --extra queue \
+    --extra otel --extra metrics --extra sentry
 
-EXPOSE 8000
+ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 ENV EXTRACTOR_CORS_ALLOW=*
+
+EXPOSE 8000
 
 CMD ["uvicorn", "dobs.api:app", "--host", "0.0.0.0", "--port", "8000"]

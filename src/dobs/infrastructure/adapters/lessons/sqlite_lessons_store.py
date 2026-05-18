@@ -5,7 +5,6 @@ import aiosqlite
 from dobs.application.ports.lessons_store import LessonsStorePort
 from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 
-
 LESSONS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS lessons (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,16 +54,19 @@ class SqliteLessonsStore(LessonsStorePort):
                 (hint,),
             )
 
-    async def stats(self) -> dict:
+    async def stats(self) -> dict[str, object]:
         async with self._sessions.read_only() as session:
             async with session.execute("SELECT COUNT(*) FROM lessons") as cursor:
-                total = (await cursor.fetchone())[0]
+                total_row = await cursor.fetchone()
+                total = total_row[0] if total_row is not None else 0
             async with session.execute(
                 "SELECT COALESCE(SUM(helpful_count), 0) FROM lessons"
             ) as cursor:
-                helpful = (await cursor.fetchone())[0]
+                helpful_row = await cursor.fetchone()
+                helpful = helpful_row[0] if helpful_row is not None else 0
             async with session.execute(
                 "SELECT COALESCE(SUM(unhelpful_count), 0) FROM lessons"
             ) as cursor:
-                unhelpful = (await cursor.fetchone())[0]
+                unhelpful_row = await cursor.fetchone()
+                unhelpful = unhelpful_row[0] if unhelpful_row is not None else 0
         return {"total": total, "helpful": helpful, "unhelpful": unhelpful}

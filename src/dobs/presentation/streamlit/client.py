@@ -3,6 +3,8 @@ from __future__ import annotations
 import io
 import os
 import time
+from collections.abc import Generator
+from typing import Any
 
 import requests
 
@@ -29,7 +31,9 @@ class ApiClient:
         except Exception:
             return []
 
-    def create_job(self, pdf_bytes: bytes, pdf_name: str, tier: str, enrich: bool, parallel: int) -> str:
+    def create_job(
+        self, pdf_bytes: bytes, pdf_name: str, tier: str, enrich: bool, parallel: int
+    ) -> str:
         r = requests.post(
             f"{self._base}/api/v1/extraction/jobs",
             headers=self._headers,
@@ -38,9 +42,9 @@ class ApiClient:
             timeout=30,
         )
         r.raise_for_status()
-        return r.json()["job_id"]
+        return str(r.json()["job_id"])
 
-    def stream_job_events(self, job_id: str):
+    def stream_job_events(self, job_id: str) -> Generator[bytes, None, None]:
         with requests.get(
             f"{self._base}/api/v1/extraction/jobs/{job_id}/events",
             headers=self._headers,
@@ -49,7 +53,7 @@ class ApiClient:
         ) as sse:
             yield from sse.iter_lines()
 
-    def poll_job(self, job_id: str, max_wait: int = 120) -> list[dict]:
+    def poll_job(self, job_id: str, max_wait: int = 120) -> list[dict[str, Any]]:
         for _ in range(max_wait // 2):
             r = requests.get(
                 f"{self._base}/api/v1/extraction/jobs/{job_id}",
@@ -65,15 +69,16 @@ class ApiClient:
             time.sleep(2)
         raise TimeoutError(f"Job {job_id} did not complete within {max_wait}s")
 
-    def get_telemetry(self) -> dict:
+    def get_telemetry(self) -> dict[str, Any]:
         try:
             r = requests.get(f"{self._base}/api/v1/telemetry", headers=self._headers, timeout=5)
             r.raise_for_status()
-            return r.json()
+            result: dict[str, Any] = r.json()
+            return result
         except Exception:
             return {}
 
-    def get_audit(self, limit: int = 100) -> list[dict]:
+    def get_audit(self, limit: int = 100) -> list[dict[str, Any]]:
         try:
             r = requests.get(
                 f"{self._base}/api/v1/audit",
@@ -82,7 +87,8 @@ class ApiClient:
                 timeout=5,
             )
             r.raise_for_status()
-            return r.json()
+            result: list[dict[str, Any]] = r.json()
+            return result
         except Exception:
             return []
 
@@ -97,7 +103,7 @@ class ApiClient:
         except Exception:
             pass
 
-    def explain_anomaly(self, anomaly: dict, transaction: dict | None) -> str:
+    def explain_anomaly(self, anomaly: dict[str, Any], transaction: dict[str, Any] | None) -> str:
         try:
             r = requests.post(
                 f"{self._base}/api/v1/reviews/explain",
@@ -106,11 +112,13 @@ class ApiClient:
                 timeout=15,
             )
             r.raise_for_status()
-            return r.json().get("explanation", r.text)
+            return str(r.json().get("explanation", r.text))
         except Exception as exc:
             return f"Could not fetch explanation: {exc}"
 
-    def export_xlsx(self, pdf_bytes: bytes, pdf_name: str, tier: str, enrich: bool, parallel: int) -> bytes:
+    def export_xlsx(
+        self, pdf_bytes: bytes, pdf_name: str, tier: str, enrich: bool, parallel: int
+    ) -> bytes:
         r = requests.post(
             f"{self._base}/api/v1/extraction/export/xlsx",
             headers=self._headers,

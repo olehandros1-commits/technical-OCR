@@ -25,9 +25,9 @@ class MemoryStatementCache(StatementCachePort):
         self._store.clear()
         return count
 
-    async def keys(self, limit: int = 200) -> list[dict]:
+    async def keys(self, limit: int = 200) -> list[dict[str, object]]:
         items = list(self._store.keys())[:limit]
         return [{"key": k, "created_at": None, "reconciled": False} for k in items]
 
-    async def stats(self) -> dict:
+    async def stats(self) -> dict[str, object]:
         return {"total": len(self._store), "backend": "memory"}

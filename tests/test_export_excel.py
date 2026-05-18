@@ -3,8 +3,14 @@ from pathlib import Path
 from dobs.presentation.export.excel import export_workbook
 
 
-def _result(period_start: str, period_end: str, beginning: float, ending: float,
-            deposits: float, withdrawals: float) -> dict:
+def _result(
+    period_start: str,
+    period_end: str,
+    beginning: float,
+    ending: float,
+    deposits: float,
+    withdrawals: float,
+) -> dict:
     return {
         "account": {
             "bank": "Test Bank",
@@ -14,27 +20,53 @@ def _result(period_start: str, period_end: str, beginning: float, ending: float,
         "summary": {
             "beginning_balance": beginning,
             "ending_balance": ending,
-            "deposits_total": deposits, "deposits_count": 2,
-            "withdrawals_total": withdrawals, "withdrawals_count": 1,
+            "deposits_total": deposits,
+            "deposits_count": 2,
+            "withdrawals_total": withdrawals,
+            "withdrawals_count": 1,
             "currency": "USD",
         },
         "transactions": [
-            {"date": period_start, "description": "DEP A", "deposit": deposits / 2,
-             "withdrawal": None, "category": "DEPOSIT_REMOTE", "vendor": None,
-             "confidence": 0.95},
-            {"date": period_start, "description": "DEP B", "deposit": deposits / 2,
-             "withdrawal": None, "category": "VENDOR_PAYMENT", "vendor": "Acme",
-             "confidence": 0.88},
-            {"date": period_end, "description": "PAY", "deposit": None,
-             "withdrawal": withdrawals, "category": "ACH_PAYABLE", "vendor": None,
-             "confidence": 0.40},
+            {
+                "date": period_start,
+                "description": "DEP A",
+                "deposit": deposits / 2,
+                "withdrawal": None,
+                "category": "DEPOSIT_REMOTE",
+                "vendor": None,
+                "confidence": 0.95,
+            },
+            {
+                "date": period_start,
+                "description": "DEP B",
+                "deposit": deposits / 2,
+                "withdrawal": None,
+                "category": "VENDOR_PAYMENT",
+                "vendor": "Acme",
+                "confidence": 0.88,
+            },
+            {
+                "date": period_end,
+                "description": "PAY",
+                "deposit": None,
+                "withdrawal": withdrawals,
+                "category": "ACH_PAYABLE",
+                "vendor": None,
+                "confidence": 0.40,
+            },
         ],
         "_reconciliation": {
-            "ok": True, "deposits_sum": deposits, "withdrawals_sum": withdrawals,
-            "deposits_count_actual": 2, "withdrawals_count_actual": 1,
-            "deposits_total_delta": 0, "withdrawals_total_delta": 0,
-            "deposits_count_delta": 0, "withdrawals_count_delta": 0,
-            "balance_equation_delta": 0, "issues": [],
+            "ok": True,
+            "deposits_sum": deposits,
+            "withdrawals_sum": withdrawals,
+            "deposits_count_actual": 2,
+            "withdrawals_count_actual": 1,
+            "deposits_total_delta": 0,
+            "withdrawals_total_delta": 0,
+            "deposits_count_delta": 0,
+            "withdrawals_count_delta": 0,
+            "balance_equation_delta": 0,
+            "issues": [],
         },
         "_anomalies": [],
         "_skipped_rows": [],
@@ -51,6 +83,7 @@ def test_workbook_has_all_sheets(tmp_path: Path):
     assert path.exists()
 
     from openpyxl import load_workbook
+
     wb = load_workbook(path)
     expected = {"Cover", "Summary", "Transactions", "Categories", "Anomalies", "Reconciliation"}
     assert expected.issubset(set(wb.sheetnames))

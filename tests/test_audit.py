@@ -1,8 +1,8 @@
 import time
 import uuid
 
-from dobs.infrastructure.adapters.audit.sqlite_audit_sink import AUDIT_SCHEMA, SqliteAuditSink
 from dobs.domain.entities.audit_record import AuditRecord
+from dobs.infrastructure.adapters.audit.sqlite_audit_sink import AUDIT_SCHEMA, SqliteAuditSink
 from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 
 

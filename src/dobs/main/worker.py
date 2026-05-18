@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 from dishka import make_async_container
 
@@ -16,25 +17,27 @@ from dobs.main.di import build_providers
 log = logging.getLogger(__name__)
 
 
-async def startup(ctx) -> None:
+async def startup(ctx: dict[str, Any]) -> None:
     ctx["container"] = make_async_container(*build_providers())
     ctx["redis_url"] = os.getenv("REDIS_URL", "redis://redis:6379/0")
     log.info("worker container built")
 
 
-async def shutdown(ctx) -> None:
+async def shutdown(ctx: dict[str, Any]) -> None:
     container = ctx.get("container")
     if container is not None:
         await container.close()
         log.info("worker container closed")
 
 
-async def run_extraction(ctx, job_id: str, command_payload: dict) -> dict:
+async def run_extraction(
+    ctx: dict[str, Any], job_id: str, command_payload: dict[str, Any]
+) -> dict[str, Any]:
     backend = command_payload.get("backend")
     if backend:
-        os.environ["EXTRACTOR_BACKEND"] = backend
+        os.environ["EXTRACTOR_BACKEND"] = str(backend)
 
-    store = RedisJobStore(url=ctx["redis_url"])
+    store = RedisJobStore(url=str(ctx["redis_url"]))
     bus = StoreEventBus(store=store, job_id=job_id)
     payload = {k: v for k, v in command_payload.items() if k != "backend"}
     command = ExtractStatementCommand(**payload)
@@ -53,7 +56,7 @@ async def run_extraction(ctx, job_id: str, command_payload: dict) -> dict:
             return {"ok": False, "error": str(exc)}
 
 
-def _build_redis_settings():
+def _build_redis_settings() -> object:
     from arq.connections import RedisSettings
 
     return RedisSettings.from_dsn(os.getenv("REDIS_URL", "redis://redis:6379/0"))
@@ -69,7 +72,7 @@ class WorkerSettings:
 def main() -> None:
     from arq.worker import run_worker
 
-    run_worker(WorkerSettings)
+    run_worker(WorkerSettings)  # type: ignore[arg-type]  # arq accepts subclasses of WorkerSettingsBase
 
 
 if __name__ == "__main__":

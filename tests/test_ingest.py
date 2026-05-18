@@ -3,11 +3,11 @@ from pathlib import Path
 import pytest
 
 from dobs.infrastructure.adapters.ocr.file_reader import (
-    FileReader,
-    clean_text,
     EmptyDocumentError,
-    UnsupportedFormatError,
+    FileReader,
     IngestError,
+    UnsupportedFormatError,
+    clean_text,
 )
 
 
@@ -53,8 +53,7 @@ async def test_unknown_format_raises(tmp_path: Path):
 
 async def test_text_file_passthrough(tmp_path: Path):
     p = tmp_path / "data.txt"
-    p.write_text("Apr 01 SOMETHING 100.00\nBeginning Balance as of 04/01/2025\n",
-                 encoding="utf-8")
+    p.write_text("Apr 01 SOMETHING 100.00\nBeginning Balance as of 04/01/2025\n", encoding="utf-8")
     reader = FileReader()
     out = await reader.read(p)
     assert "SOMETHING" in out

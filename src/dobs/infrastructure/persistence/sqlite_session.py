@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
 
 import aiosqlite
 
@@ -21,7 +21,7 @@ class SqliteSessionFactory:
             return
         async with self._init_lock:
             if self._initialised:
-                return
+                return  # type: ignore[unreachable]  # double-checked lock pattern
             async with aiosqlite.connect(self._db_path) as conn:
                 await conn.executescript(self._schema)
                 await conn.commit()

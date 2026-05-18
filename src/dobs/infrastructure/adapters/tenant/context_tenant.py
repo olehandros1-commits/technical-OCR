@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from collections.abc import AsyncGenerator
 
 _VALID = re.compile(r"^[a-zA-Z0-9._-]{1,64}$")
 _DEFAULT = "_default"

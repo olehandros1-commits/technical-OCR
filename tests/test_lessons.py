@@ -1,12 +1,17 @@
 from pathlib import Path
 
-from dobs.infrastructure.adapters.lessons.sqlite_lessons_store import LESSONS_SCHEMA, SqliteLessonsStore as LessonsStore
+from dobs.infrastructure.adapters.lessons.sqlite_lessons_store import LESSONS_SCHEMA
+from dobs.infrastructure.adapters.lessons.sqlite_lessons_store import (
+    SqliteLessonsStore as LessonsStore,
+)
 from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 
 
 def _make_store(tmp_path):
     sessions = SqliteSessionFactory(db_path=tmp_path / "lessons.db", schema=LESSONS_SCHEMA)
     return LessonsStore(sessions=sessions)
+
+
 from dobs.application.services.lessons_helpers import LessonsHelper
 
 _lessons = LessonsHelper()
@@ -18,6 +23,8 @@ def diagnose_repair(*args, **kwargs):
 
 def lessons_block(hints):
     return _lessons.build_prompt_block(hints)
+
+
 from dobs.domain.value_objects.reconciliation import ReconciliationResult
 from dobs.domain.value_objects.transaction import Transaction
 
@@ -58,8 +65,7 @@ def test_diagnose_missed_check():
 def test_diagnose_hallucinated_balance_marker():
     before = _recon(ok=False, dep_delta=-1.0)
     after = _recon(ok=True)
-    prev = [Transaction(date="2025-04-01", description="BEGINNING BALANCE $1000",
-                        deposit=1000.0)]
+    prev = [Transaction(date="2025-04-01", description="BEGINNING BALANCE $1000", deposit=1000.0)]
     after_txns: list[Transaction] = []
     out = diagnose_repair(before, after, prev, after_txns)
     assert any("BEGINNING BALANCE" in h for _, h in out)

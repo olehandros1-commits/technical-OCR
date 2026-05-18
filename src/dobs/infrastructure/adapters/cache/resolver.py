@@ -21,6 +21,7 @@ async def open_cache(url: str) -> StatementCachePort:
     if url.startswith("redis://") or url.startswith("rediss://"):
         try:
             from dobs.infrastructure.adapters.cache.redis_cache import RedisStatementCache
+
             cache = RedisStatementCache(url=url)
             await cache._client.ping()
             return cache
@@ -29,6 +30,6 @@ async def open_cache(url: str) -> StatementCachePort:
             return SqliteStatementCache(db_path=Path("out/cache.db"))
 
     if url.startswith("sqlite:"):
-        url = url[len("sqlite:"):]
+        url = url[len("sqlite:") :]
 
     return SqliteStatementCache(db_path=Path(url))

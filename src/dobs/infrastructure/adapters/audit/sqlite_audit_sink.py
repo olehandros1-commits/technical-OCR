@@ -7,7 +7,6 @@ from dobs.application.ports.audit_sink import AuditSinkPort
 from dobs.domain.entities.audit_record import AuditRecord
 from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 
-
 AUDIT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS audit_log (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,16 +31,28 @@ CREATE INDEX IF NOT EXISTS idx_audit_sha     ON audit_log(source_sha256);
 """
 
 _COLS = [
-    "id", "started_at", "finished_at", "tier", "backend",
-    "source_filename", "source_sha256", "statement_count",
-    "reconciled_count", "transactions_count", "total_cost_usd",
-    "elapsed_s", "prompts_hash", "operator", "client_ip",
+    "id",
+    "started_at",
+    "finished_at",
+    "tier",
+    "backend",
+    "source_filename",
+    "source_sha256",
+    "statement_count",
+    "reconciled_count",
+    "transactions_count",
+    "total_cost_usd",
+    "elapsed_s",
+    "prompts_hash",
+    "operator",
+    "client_ip",
 ]
 
 
 def _prompts_hash() -> str:
     try:
-        from dobs.domain.prompts import SUMMARY_SYSTEM, TRANSACTIONS_SYSTEM, REPAIR_SYSTEM
+        from dobs.domain.prompts import REPAIR_SYSTEM, SUMMARY_SYSTEM, TRANSACTIONS_SYSTEM
+
         h = hashlib.sha256()
         for p in (SUMMARY_SYSTEM, TRANSACTIONS_SYSTEM, REPAIR_SYSTEM):
             h.update(p.encode("utf-8"))
@@ -81,9 +92,9 @@ class SqliteAuditSink(AuditSinkPort):
                     json.dumps(record.metadata),
                 ),
             )
-            return cursor.lastrowid
+            return cursor.lastrowid or 0
 
-    async def recent(self, limit: int = 50) -> list[AuditRecord]:
+    async def recent(self, limit: int = 50) -> list[dict[str, object]]:
         async with self._sessions.read_only() as session:
             async with session.execute(
                 f"SELECT {', '.join(_COLS)} FROM audit_log ORDER BY id DESC LIMIT ?",

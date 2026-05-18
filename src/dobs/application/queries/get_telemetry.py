@@ -19,5 +19,5 @@ class GetTelemetryHandler:
     ) -> None:
         self._telemetry = telemetry
 
-    async def __call__(self, query: GetTelemetryQuery) -> dict:
+    async def __call__(self, query: GetTelemetryQuery) -> dict[str, object]:
         return self._telemetry.summary()

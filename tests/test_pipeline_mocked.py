@@ -1,37 +1,31 @@
 from pydantic import BaseModel, ConfigDict
 
+from dobs.application.commands.extraction.enrich_transactions import (
+    EnrichTransactionsHandler,
+)
 from dobs.application.commands.extraction.extract_statement import (
     ExtractStatementCommand,
     ExtractStatementHandler,
 )
 from dobs.application.commands.extraction.extract_summary import (
-    ExtractSummaryCommand,
     ExtractSummaryHandler,
 )
 from dobs.application.commands.extraction.extract_transactions import (
-    ExtractTransactionsCommand,
     ExtractTransactionsHandler,
 )
 from dobs.application.commands.extraction.extract_transactions_hybrid import (
     ExtractTransactionsHybridHandler,
-    _TransactionsResult,
 )
 from dobs.application.commands.extraction.repair_statement import (
-    RepairStatementCommand,
     RepairStatementHandler,
-)
-from dobs.application.commands.extraction.enrich_transactions import (
-    EnrichTransactionsCommand,
-    EnrichTransactionsHandler,
 )
 from dobs.application.services.segmenter import StatementSegment
 from dobs.domain.value_objects.account import Account
+from dobs.domain.value_objects.llm_role import LLMRole
 from dobs.domain.value_objects.period import Period
 from dobs.domain.value_objects.summary import Summary
 from dobs.domain.value_objects.transaction import Transaction
-from dobs.domain.value_objects.llm_role import LLMRole
 from dobs.infrastructure.adapters.cache.memory_cache import MemoryStatementCache
-
 
 _SEGMENT_TEXT = (
     "Ixonia Bank\nAccount Number: 4664\nBalance Summary\n"
@@ -80,7 +74,10 @@ class _MockLLM:
     async def call_structured(self, *, system, user, response_model, role=LLMRole.EXTRACT, **kw):
         self.calls.append(response_model.__name__)
         from dobs.application.commands.extraction.extract_summary import _SummaryResponse as SR
-        from dobs.application.commands.extraction.extract_transactions_hybrid import _TransactionsResult as TR
+        from dobs.application.commands.extraction.extract_transactions_hybrid import (
+            _TransactionsResult as TR,
+        )
+
         if response_model is SR:
             return SR(account=_ACCOUNT, summary=_SUMMARY)
         if response_model is TR:
@@ -101,17 +98,22 @@ class _BadThenGoodLLM(_MockLLM):
 
     async def call_structured(self, *, system, user, response_model, **kw):
         from dobs.application.commands.extraction.extract_summary import _SummaryResponse as SR
-        from dobs.application.commands.extraction.extract_transactions_hybrid import _TransactionsResult as TR
+        from dobs.application.commands.extraction.extract_transactions_hybrid import (
+            _TransactionsResult as TR,
+        )
+
         self.calls.append(response_model.__name__)
         if response_model is SR:
             return SR(account=_ACCOUNT, summary=_SUMMARY)
         if response_model is TR:
             self.tx_calls += 1
             if self.tx_calls == 1:
-                return TR(transactions=[
-                    Transaction(date="2025-04-02", description="OTHER", deposit=200.0),
-                    Transaction(date="2025-04-03", description="PAY", withdrawal=50.0),
-                ])
+                return TR(
+                    transactions=[
+                        Transaction(date="2025-04-02", description="OTHER", deposit=200.0),
+                        Transaction(date="2025-04-03", description="PAY", withdrawal=50.0),
+                    ]
+                )
             return TR(transactions=list(_TRANSACTIONS))
         raise NotImplementedError
 
@@ -140,6 +142,7 @@ class _NullTelemetry:
 class _NullVendorLookup:
     async def lookup(self, raw):
         from dobs.application.ports.vendor_lookup import VendorInfo
+
         return VendorInfo(raw=raw)
 
     async def enrich_in_place(self, txns):
@@ -166,15 +169,23 @@ def _build_handler(llm, cache=None):
     chunker = TransactionChunker()
     lessons_helper = LessonsHelper()
     hybrid = ExtractTransactionsHybridHandler(
-        llm=llm, sanitizer=sanitizer, row_parser=row_parser,
+        llm=llm,
+        sanitizer=sanitizer,
+        row_parser=row_parser,
     )
     summary_h = ExtractSummaryHandler(llm=llm, sanitizer=sanitizer)
     tx_h = ExtractTransactionsHandler(
-        llm=llm, hybrid=hybrid, sanitizer=sanitizer,
-        chunker=chunker, lessons_helper=lessons_helper, lessons=None,
+        llm=llm,
+        hybrid=hybrid,
+        sanitizer=sanitizer,
+        chunker=chunker,
+        lessons_helper=lessons_helper,
+        lessons=None,
     )
     repair_h = RepairStatementHandler(
-        llm=llm, sanitizer=sanitizer, reconciler=reconciler,
+        llm=llm,
+        sanitizer=sanitizer,
+        reconciler=reconciler,
     )
     enrich_h = EnrichTransactionsHandler(llm=llm)
     return ExtractStatementHandler(

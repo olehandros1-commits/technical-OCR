@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/v1/health", tags=["health"], route_class=DishkaR
 
 
 @router.get("/live")
-async def live() -> dict:
+async def live() -> dict[str, str]:
     return {"status": "live"}
 
 
@@ -24,7 +24,7 @@ async def ready(
     cache: FromDishka[StatementCachePort],
     audit: FromDishka[AuditSinkPort],
     response: Response,
-) -> dict:
+) -> dict[str, object]:
     checks: dict[str, str] = {}
 
     try:
@@ -45,6 +45,7 @@ async def ready(
     if redis_url:
         try:
             from redis.asyncio import Redis
+
             client = Redis.from_url(redis_url, socket_timeout=2.0)
             await client.ping()
             await client.close()
@@ -64,5 +65,5 @@ async def ready(
 
 
 @router.get("")
-async def health() -> dict:
+async def health() -> dict[str, object]:
     return {"ok": True, "service": "dobs-extractor"}

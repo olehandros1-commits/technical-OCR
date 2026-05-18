@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 
 class RedisJobStore:
     def __init__(self, /, *, url: str, key_prefix: str = "dobs:job:") -> None:
         from redis.asyncio import Redis
+
         self._url = url
         self._prefix = key_prefix
         self._client: Redis = Redis.from_url(url, decode_responses=True)
@@ -17,14 +18,14 @@ class RedisJobStore:
     def _result_key(self, job_id: str) -> str:
         return f"{self._prefix}{job_id}:result"
 
-    async def write_event(self, job_id: str, event: dict) -> None:
+    async def write_event(self, job_id: str, event: dict[str, object]) -> None:
         payload = json.dumps(event)
-        await self._client.rpush(self._events_channel(job_id), payload)
+        await self._client.rpush(self._events_channel(job_id), payload)  # type: ignore[misc]  # redis.asyncio overload returns Awaitable[int] | int
         await self._client.expire(self._events_channel(job_id), 86400)
         await self._client.publish(self._events_channel(job_id), payload)
 
-    async def read_events(self, job_id: str) -> AsyncIterator[dict]:
-        existing = await self._client.lrange(self._events_channel(job_id), 0, -1)
+    async def read_events(self, job_id: str) -> AsyncIterator[dict[str, object]]:
+        existing = await self._client.lrange(self._events_channel(job_id), 0, -1)  # type: ignore[misc]  # redis.asyncio overload returns Awaitable[list] | list
         last_seen = 0
         for raw in existing:
             event = json.loads(raw)
@@ -50,7 +51,7 @@ class RedisJobStore:
     async def write_result(
         self,
         job_id: str,
-        result: list[dict] | None = None,
+        result: list[dict[str, object]] | None = None,
         error: str | None = None,
     ) -> None:
         payload = json.dumps({"result": result, "error": error, "done": True})
@@ -60,7 +61,7 @@ class RedisJobStore:
     async def read_result(
         self,
         job_id: str,
-    ) -> tuple[list[dict] | None, str | None, bool]:
+    ) -> tuple[list[dict[str, object]] | None, str | None, bool]:
         raw = await self._client.get(self._result_key(job_id))
         if raw is None:
             if not await self.exists(job_id):

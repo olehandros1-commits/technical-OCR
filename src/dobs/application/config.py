@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dobs.domain.value_objects.tier import Tier
 
-
 PREMIUM = Tier(
     name="premium",
     display="Premium (Opus)",
@@ -44,8 +43,7 @@ LOCAL = Tier(
     name="local",
     display="Local (Ollama qwen2.5)",
     description=(
-        "Privacy-first: nothing leaves the box. qwen2.5:14b for "
-        "extraction, qwen2.5:7b for summary."
+        "Privacy-first: nothing leaves the box. qwen2.5:14b for extraction, qwen2.5:7b for summary."
     ),
     backend="ollama",
     model_cheap="qwen2.5:7b",
@@ -61,9 +59,7 @@ LOCAL = Tier(
 CHEAP = Tier(
     name="cheap",
     display="Cheap (Haiku only)",
-    description=(
-        "Fastest cloud option for triage: Haiku for everything."
-    ),
+    description=("Fastest cloud option for triage: Haiku for everything."),
     backend="anthropic",
     model_cheap="claude-haiku-4-5",
     model_extract="claude-haiku-4-5",
@@ -75,9 +71,7 @@ CHEAP = Tier(
     ocr_mode="auto",
 )
 
-_REGISTRY: dict[str, Tier] = {
-    t.name: t for t in (PREMIUM, BALANCED, LOCAL, CHEAP)
-}
+_REGISTRY: dict[str, Tier] = {t.name: t for t in (PREMIUM, BALANCED, LOCAL, CHEAP)}
 
 
 class TierRegistry:

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import AsyncIterator
 
 
 @dataclass
 class _JobState:
-    queue: asyncio.Queue = field(default_factory=asyncio.Queue)
-    result: list[dict] | None = None
+    queue: asyncio.Queue[dict[str, object]] = field(default_factory=asyncio.Queue)
+    result: list[dict[str, object]] | None = None
     error: str | None = None
     done: bool = False
     finished_at: float | None = None
@@ -38,7 +38,8 @@ class MemoryJobStore:
     def _evict_expired_locked(self) -> None:
         now = time.monotonic()
         expired = [
-            jid for jid, st in self._jobs.items()
+            jid
+            for jid, st in self._jobs.items()
             if st.finished_at is not None and (now - st.finished_at) > self._ttl
         ]
         for jid in expired:
@@ -51,11 +52,11 @@ class MemoryJobStore:
             for jid in sorted_finished[: len(self._jobs) - self._max_jobs]:
                 self._jobs.pop(jid, None)
 
-    async def write_event(self, job_id: str, event: dict) -> None:
+    async def write_event(self, job_id: str, event: dict[str, object]) -> None:
         state = await self._ensure(job_id)
         await state.queue.put(event)
 
-    async def read_events(self, job_id: str) -> AsyncIterator[dict]:
+    async def read_events(self, job_id: str) -> AsyncIterator[dict[str, object]]:
         state = await self._ensure(job_id)
         while True:
             event = await state.queue.get()
@@ -66,7 +67,7 @@ class MemoryJobStore:
     async def write_result(
         self,
         job_id: str,
-        result: list[dict] | None = None,
+        result: list[dict[str, object]] | None = None,
         error: str | None = None,
     ) -> None:
         state = await self._ensure(job_id)
@@ -79,7 +80,7 @@ class MemoryJobStore:
     async def read_result(
         self,
         job_id: str,
-    ) -> tuple[list[dict] | None, str | None, bool]:
+    ) -> tuple[list[dict[str, object]] | None, str | None, bool]:
         async with self._lock:
             state = self._jobs.get(job_id)
         if state is None:

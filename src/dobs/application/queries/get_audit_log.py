@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from dobs.application.ports.audit_sink import AuditSinkPort
-from dobs.domain.entities.audit_record import AuditRecord
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -20,5 +19,5 @@ class GetAuditLogHandler:
     ) -> None:
         self._audit = audit
 
-    async def __call__(self, query: GetAuditLogQuery) -> list[AuditRecord]:
+    async def __call__(self, query: GetAuditLogQuery) -> list[dict[str, object]]:
         return await self._audit.recent(limit=query.limit)

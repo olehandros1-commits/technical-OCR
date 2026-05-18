@@ -21,12 +21,14 @@ def _normalise_tenant(tid: str | None) -> str:
 
 def current_tenant() -> str:
     import threading
+
     return _TENANT_CTX.get(threading.get_ident(), _DEFAULT_TENANT)
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         import threading
+
         tid = _normalise_tenant(request.headers.get("x-tenant-id"))
         ident = threading.get_ident()
         _TENANT_CTX[ident] = tid

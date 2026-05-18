@@ -18,7 +18,6 @@ from dobs.infrastructure.adapters.ocr.file_reader import (
 )
 from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 
-
 OCR_CACHE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS ocr_cache (
     file_hash  TEXT NOT NULL,
@@ -49,8 +48,7 @@ class OcrCacheStore:
     async def put(self, file_hash: str, text: str, method: str) -> None:
         async with self._sessions.session() as session:
             await session.execute(
-                "INSERT OR REPLACE INTO ocr_cache (file_hash, method, text) "
-                "VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO ocr_cache (file_hash, method, text) VALUES (?, ?, ?)",
                 (file_hash, method, text),
             )
 
@@ -72,13 +70,14 @@ class TesseractOcrEngine(OcrEnginePort):
         self,
         path: str,
         *,
-        log_event: Callable | None = None,
+        log_event: Callable[..., object] | None = None,
     ) -> str:
         p = Path(path)
         if not p.exists():
             raise IngestError(f"File not found: {p}")
         if p.stat().st_size == 0:
             from dobs.infrastructure.adapters.ocr.file_reader import EmptyDocumentError
+
             raise EmptyDocumentError(f"File is empty: {p}")
 
         kind = detect_kind(p)
@@ -95,9 +94,9 @@ class TesseractOcrEngine(OcrEnginePort):
             return await self._ocr_pdf(p, log_event)
 
         from dobs.infrastructure.adapters.ocr.file_reader import UnsupportedFormatError
+
         raise UnsupportedFormatError(
-            f"Cannot determine how to read {p.name}. "
-            "Supported: PDF, image, xlsx, html, txt."
+            f"Cannot determine how to read {p.name}. Supported: PDF, image, xlsx, html, txt."
         )
 
     async def _file_hash(self, path: Path) -> str:
@@ -113,18 +112,21 @@ class TesseractOcrEngine(OcrEnginePort):
     async def _ocr_pdf(
         self,
         path: Path,
-        log_event: Callable | None = None,
+        log_event: Callable[..., object] | None = None,
     ) -> str:
         file_hash = await self._file_hash(path)
         if self._cache is not None:
             cached = await self._cache.get(file_hash, "tesseract")
             if cached is not None:
                 if log_event:
-                    log_event("ocr_cache_hit", {
-                        "file_hash": file_hash[:16],
-                        "chars": len(cached),
-                        "method": "tesseract",
-                    })
+                    log_event(
+                        "ocr_cache_hit",
+                        {
+                            "file_hash": file_hash[:16],
+                            "chars": len(cached),
+                            "method": "tesseract",
+                        },
+                    )
                 return cached
             if log_event:
                 log_event("ocr_cache_miss", {"file_hash": file_hash[:16], "method": "tesseract"})
@@ -140,12 +142,13 @@ class TesseractOcrEngine(OcrEnginePort):
     @staticmethod
     def _ocr_one_image(img: object, lang: str, config: str) -> str:
         import pytesseract
-        return pytesseract.image_to_string(img, lang=lang, config=config)
+
+        return str(pytesseract.image_to_string(img, lang=lang, config=config))
 
     async def _run_tesseract(
         self,
         path: Path,
-        log_event: Callable | None = None,
+        log_event: Callable[..., object] | None = None,
     ) -> str:
         try:
             from pdf2image import convert_from_path
@@ -196,31 +199,44 @@ class TesseractOcrEngine(OcrEnginePort):
                 if not imgs:
                     break
                 fut = loop.run_in_executor(
-                    pool, self._ocr_one_image, imgs[0], self._lang, config,
+                    pool,
+                    self._ocr_one_image,
+                    imgs[0],
+                    self._lang,
+                    config,
                 )
                 futures.append((page_idx - 1, fut))
 
         if log_event:
-            log_event("ocr_render_done", {
-                "pages": len(futures),
-                "elapsed_s": round(time.time() - t0, 2),
-            })
+            log_event(
+                "ocr_render_done",
+                {
+                    "pages": len(futures),
+                    "elapsed_s": round(time.time() - t0, 2),
+                },
+            )
 
         page_texts = await asyncio.gather(*(f for _, f in futures))
         for (idx, _), text in zip(futures, page_texts):
             results[idx] = text
             completed = idx + 1
             if log_event and (completed % 5 == 0 or completed == len(futures)):
-                log_event("ocr_page", {
-                    "done": completed,
-                    "of": len(futures),
-                    "elapsed_s": round(time.time() - t_ocr, 1),
-                })
+                log_event(
+                    "ocr_page",
+                    {
+                        "done": completed,
+                        "of": len(futures),
+                        "elapsed_s": round(time.time() - t_ocr, 1),
+                    },
+                )
 
         if log_event:
-            log_event("ocr_pool_done", {
-                "pages": len(results),
-                "elapsed_s": round(time.time() - t_ocr, 2),
-            })
+            log_event(
+                "ocr_pool_done",
+                {
+                    "pages": len(results),
+                    "elapsed_s": round(time.time() - t_ocr, 2),
+                },
+            )
 
         return clean_text("\n".join(results[i] for i in sorted(results)))

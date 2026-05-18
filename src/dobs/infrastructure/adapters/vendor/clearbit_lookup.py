@@ -9,7 +9,6 @@ import httpx
 from dobs.application.ports.vendor_lookup import VendorInfo, VendorLookupPort
 from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 
-
 VENDOR_CACHE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS vendor_cache (
     key        TEXT PRIMARY KEY,
@@ -44,13 +43,15 @@ class VendorCacheStore:
             return None
 
     async def put(self, key: str, info: VendorInfo) -> None:
-        payload = json.dumps({
-            "raw": info.raw,
-            "canonical_name": info.canonical_name,
-            "category": info.category,
-            "logo_url": info.logo_url,
-            "country": info.country,
-        })
+        payload = json.dumps(
+            {
+                "raw": info.raw,
+                "canonical_name": info.canonical_name,
+                "category": info.category,
+                "logo_url": info.logo_url,
+                "country": info.country,
+            }
+        )
         async with self._sessions.session() as session:
             await session.execute(
                 "INSERT OR REPLACE INTO vendor_cache (key, payload) VALUES (?, ?)",
@@ -99,6 +100,7 @@ class ClearbitVendorLookup(VendorLookupPort):
             return None
         try:
             import urllib.parse
+
             q = urllib.parse.quote_plus(raw[:60])
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.get(f"{self._CLEARBIT_URL}?query={q}")

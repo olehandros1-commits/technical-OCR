@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from dobs.application.ports.review_store import ReviewStorePort
+from dobs.application.ports.review_store import Decision, ReviewStorePort
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class RecordReviewCommand:
     statement_key: str
     tx_index: int
-    decision: str
+    decision: Decision
     reviewer: str
 
 

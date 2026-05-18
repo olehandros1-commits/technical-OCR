@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from dobs.domain.services.recurring_detector import RecurringDetector
+from dobs.domain.value_objects.transaction import Transaction
 
 _recurring = RecurringDetector()
 
@@ -15,7 +16,6 @@ def _normalise(*args, **kwargs):
 
 def _cadence_label(*args, **kwargs):
     return _recurring._cadence_label(*args, **kwargs)
-from dobs.domain.value_objects.transaction import Transaction
 
 
 def _tx(d: str, desc: str, amount: float, side: str = "withdrawal", vendor=None) -> Transaction:
@@ -46,8 +46,7 @@ async def test_monthly_subscription_detected():
 async def test_weekly_payroll_detected():
     base = date(2025, 1, 6)
     txns = [
-        _tx((base + timedelta(weeks=i)).isoformat(),
-            "PAYROLL ACME CORP", 5000.0, "deposit", "Acme")
+        _tx((base + timedelta(weeks=i)).isoformat(), "PAYROLL ACME CORP", 5000.0, "deposit", "Acme")
         for i in range(6)
     ]
     groups = await detect_recurring(txns)
@@ -65,10 +64,7 @@ async def test_one_off_transactions_not_grouped():
 
 
 async def test_amount_tolerance():
-    txns = [
-        _tx(f"2025-{m:02d}-15", "SAAS", 99.99, vendor="SaaS")
-        for m in range(1, 5)
-    ]
+    txns = [_tx(f"2025-{m:02d}-15", "SAAS", 99.99, vendor="SaaS") for m in range(1, 5)]
     txns[1] = _tx("2025-02-15", "SAAS", 100.50, vendor="SaaS")
     groups = await detect_recurring(txns)
     assert len(groups) == 1

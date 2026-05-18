@@ -7,7 +7,9 @@ from dobs.application.commands.extraction.enrich_transactions import EnrichTrans
 from dobs.application.commands.extraction.extract_statement import ExtractStatementHandler
 from dobs.application.commands.extraction.extract_summary import ExtractSummaryHandler
 from dobs.application.commands.extraction.extract_transactions import ExtractTransactionsHandler
-from dobs.application.commands.extraction.extract_transactions_hybrid import ExtractTransactionsHybridHandler
+from dobs.application.commands.extraction.extract_transactions_hybrid import (
+    ExtractTransactionsHybridHandler,
+)
 from dobs.application.commands.extraction.prevalidate_document import PrevalidateDocumentHandler
 from dobs.application.commands.extraction.repair_statement import RepairStatementHandler
 from dobs.application.commands.review.record_review import RecordReviewHandler
@@ -34,22 +36,41 @@ from dobs.infrastructure.adapters.jobs.background_runner import BackgroundJobRun
 from dobs.infrastructure.adapters.replay.replaying_extract_handler import ReplayingExtractHandler
 from dobs.main.di import build_providers
 
-
 _PORTS = [
-    AuditSinkPort, StatementCachePort, EventBusPort, JobStorePort,
-    LessonsStorePort, LLMBackendPort, OcrEnginePort, ReviewStorePort,
-    TelemetryCollectorPort, VendorEnricherPort, VendorLookupPort,
+    AuditSinkPort,
+    StatementCachePort,
+    EventBusPort,
+    JobStorePort,
+    LessonsStorePort,
+    LLMBackendPort,
+    OcrEnginePort,
+    ReviewStorePort,
+    TelemetryCollectorPort,
+    VendorEnricherPort,
+    VendorLookupPort,
 ]
 
 _HANDLERS = [
-    BustCacheHandler, ClearCacheHandler,
-    EnrichTransactionsHandler, ExtractStatementHandler, ExtractSummaryHandler,
-    ExtractTransactionsHandler, ExtractTransactionsHybridHandler,
-    PrevalidateDocumentHandler, RepairStatementHandler, RecordReviewHandler,
-    DiffExtractionsHandler, EstimateCostHandler, ExplainAnomalyHandler,
-    GetAuditLogHandler, GetCacheKeysHandler, GetReviewsHandler,
-    GetTelemetryHandler, GetTiersHandler,
-    BackgroundJobRunner, ReplayingExtractHandler,
+    BustCacheHandler,
+    ClearCacheHandler,
+    EnrichTransactionsHandler,
+    ExtractStatementHandler,
+    ExtractSummaryHandler,
+    ExtractTransactionsHandler,
+    ExtractTransactionsHybridHandler,
+    PrevalidateDocumentHandler,
+    RepairStatementHandler,
+    RecordReviewHandler,
+    DiffExtractionsHandler,
+    EstimateCostHandler,
+    ExplainAnomalyHandler,
+    GetAuditLogHandler,
+    GetCacheKeysHandler,
+    GetReviewsHandler,
+    GetTelemetryHandler,
+    GetTiersHandler,
+    BackgroundJobRunner,
+    ReplayingExtractHandler,
 ]
 
 

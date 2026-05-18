@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 log = logging.getLogger(__name__)
 
@@ -33,14 +33,19 @@ def _init_tracer() -> object | None:
         log.info("OpenTelemetry SDK not installed; tracing disabled")
         return None
 
-    provider = TracerProvider(resource=Resource.create({
-        SERVICE_NAME: os.getenv("OTEL_SERVICE_NAME", "bank-statement-extractor"),
-    }))
+    provider = TracerProvider(
+        resource=Resource.create(
+            {
+                SERVICE_NAME: os.getenv("OTEL_SERVICE_NAME", "bank-statement-extractor"),
+            }
+        )
+    )
 
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if otlp_endpoint:
         try:
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
             provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
             log.info("OTLP trace exporter -> %s", otlp_endpoint)
         except ImportError:
@@ -58,12 +63,14 @@ class OpenTelemetryTracer:
         pass
 
     @contextmanager
-    def span(self, name: str, attributes: dict | None = None) -> Iterator[object | None]:
+    def span(
+        self, name: str, attributes: dict[str, object] | None = None
+    ) -> Iterator[object | None]:
         tracer = _init_tracer()
         if tracer is None:
             yield None
             return
-        with tracer.start_as_current_span(name) as sp:
+        with tracer.start_as_current_span(name) as sp:  # type: ignore[attr-defined]  # opentelemetry not typed
             if attributes:
                 for k, v in attributes.items():
                     try:

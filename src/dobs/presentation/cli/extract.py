@@ -23,9 +23,20 @@ err = Console(stderr=True)
 @click.option("--all/--first", "all_statements", default=True)
 @click.option("--out", "out_path", type=click.Path(dir_okay=False), default=None)
 @click.option("--xlsx", "xlsx_path", type=click.Path(dir_okay=False), default=None)
-@click.option("--tier", type=click.Choice(["premium", "balanced", "cheap", "local"], case_sensitive=False), default=None)
-@click.option("--backend", type=click.Choice(["anthropic", "ollama"], case_sensitive=False), default=None)
-@click.option("--ocr-mode", type=click.Choice(["auto", "vision", "tesseract", "skip"], case_sensitive=False), default="auto", show_default=True)
+@click.option(
+    "--tier",
+    type=click.Choice(["premium", "balanced", "cheap", "local"], case_sensitive=False),
+    default=None,
+)
+@click.option(
+    "--backend", type=click.Choice(["anthropic", "ollama"], case_sensitive=False), default=None
+)
+@click.option(
+    "--ocr-mode",
+    type=click.Choice(["auto", "vision", "tesseract", "skip"], case_sensitive=False),
+    default="auto",
+    show_default=True,
+)
 @click.option("--enrich/--no-enrich", default=False, show_default=True)
 @click.option("--parallel", type=int, default=2, show_default=True)
 @click.option("--verbose/--quiet", default=True)
@@ -42,12 +53,21 @@ def extract(
     parallel: int,
     verbose: bool,
 ) -> None:
-    asyncio.run(_run(
-        pdf_path=pdf_path, txt_path=txt_path,
-        all_statements=all_statements, out_path=out_path, xlsx_path=xlsx_path,
-        tier=tier, backend=backend, ocr_mode=ocr_mode,
-        enrich=enrich, parallel=parallel, verbose=verbose,
-    ))
+    asyncio.run(
+        _run(
+            pdf_path=pdf_path,
+            txt_path=txt_path,
+            all_statements=all_statements,
+            out_path=out_path,
+            xlsx_path=xlsx_path,
+            tier=tier,
+            backend=backend,
+            ocr_mode=ocr_mode,
+            enrich=enrich,
+            parallel=parallel,
+            verbose=verbose,
+        )
+    )
 
 
 async def _run(
@@ -87,7 +107,7 @@ async def _run(
 
     payload = results if all_statements else (results[0] if results else {})
 
-    def _default(obj):
+    def _default(obj: object) -> object:
         if hasattr(obj, "__dict__"):
             return obj.__dict__
         if hasattr(obj, "_asdict"):

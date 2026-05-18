@@ -19,9 +19,7 @@ def render_file_uploader() -> tuple[list[tuple[bytes, str, bytes | None, str]], 
             help="Match by filename stem (e.g. chase_apr.txt → chase_apr.pdf).",
         )
 
-    use_sample = st.button(
-        ":file_folder: Use bundled Ixonia sample", use_container_width=True
-    )
+    use_sample = st.button(":file_folder: Use bundled Ixonia sample", use_container_width=True)
 
     inputs: list[tuple[bytes, str, bytes | None, str]] = []
 
@@ -39,16 +37,19 @@ def render_file_uploader() -> tuple[list[tuple[bytes, str, bytes | None, str]], 
         return [], False
 
     txt_by_stem: dict[str, tuple[bytes, str]] = {}
-    for f in (uploaded_txts or []):
+    for f in uploaded_txts or []:
         txt_by_stem[Path(f.name).stem] = (f.getvalue(), f.name)
 
     for f in uploaded_pdfs:
         stem = Path(f.name).stem
         txt_pair = txt_by_stem.get(stem)
-        inputs.append((
-            f.getvalue(), f.name,
-            txt_pair[0] if txt_pair else None,
-            txt_pair[1] if txt_pair else "",
-        ))
+        inputs.append(
+            (
+                f.getvalue(),
+                f.name,
+                txt_pair[0] if txt_pair else None,
+                txt_pair[1] if txt_pair else "",
+            )
+        )
 
     return inputs, False

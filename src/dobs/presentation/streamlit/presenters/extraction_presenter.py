@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 
 import requests
 import streamlit as st
@@ -41,14 +42,16 @@ class ExtractionPresenter:
     def _run_extraction(self, inputs: list[tuple[bytes, str, bytes | None, str]]) -> None:
         progress_placeholder = st.container().empty()
         log_lines: list[str] = []
-        all_results: dict[str, list[dict]] = {}
+        all_results: dict[str, list[dict[str, Any]]] = {}
 
         for pdf_bytes, pdf_name, _txt_bytes, _txt_name in inputs:
             log_lines.append(f"\n### Processing **{pdf_name}**")
             render_pipeline_events(log_lines, progress_placeholder)
             try:
                 with st.spinner(f"{pdf_name}: running pipeline…"):
-                    results = self._stream_extract(pdf_bytes, pdf_name, log_lines, progress_placeholder)
+                    results = self._stream_extract(
+                        pdf_bytes, pdf_name, log_lines, progress_placeholder
+                    )
             except Exception as exc:
                 st.error(f"{pdf_name}: {exc}")
                 results = []
@@ -63,11 +66,14 @@ class ExtractionPresenter:
         pdf_bytes: bytes,
         pdf_name: str,
         log_lines: list[str],
-        placeholder,
-    ) -> list[dict]:
+        placeholder: Any,
+    ) -> list[dict[str, Any]]:
         job_id = self._client.create_job(
-            pdf_bytes, pdf_name,
-            self._state.tier, self._state.enrich, self._state.parallel,
+            pdf_bytes,
+            pdf_name,
+            self._state.tier,
+            self._state.enrich,
+            self._state.parallel,
         )
         log_lines.append(f"`queued` job **{job_id[:8]}…**")
         render_pipeline_events(log_lines, placeholder)

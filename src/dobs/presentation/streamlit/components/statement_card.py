@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import io
 import json
+from typing import Any
 
 import pandas as pd
 import streamlit as st
 
 
-def render_statement_card(stmt: dict, file_label: str) -> None:
+def render_statement_card(stmt: dict[str, Any], file_label: str) -> None:
     acct = stmt.get("account") or {}
     summ = stmt.get("summary") or {}
     recon = stmt.get("_reconciliation") or {}
@@ -24,7 +25,9 @@ def render_statement_card(stmt: dict, file_label: str) -> None:
         if recon.get("ok"):
             st.markdown('<div class="reconciled-ok">RECONCILED</div>', unsafe_allow_html=True)
         else:
-            st.markdown('<div class="reconciled-bad">RECONCILIATION FAILED</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="reconciled-bad">RECONCILIATION FAILED</div>', unsafe_allow_html=True
+            )
 
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     beg = summ.get("beginning_balance", 0)
@@ -47,7 +50,7 @@ def render_statement_card(stmt: dict, file_label: str) -> None:
 
     if anomalies:
         st.markdown("**Anomalies**")
-        by_kind: dict[str, list] = {}
+        by_kind: dict[str, list[Any]] = {}
         for an in anomalies:
             by_kind.setdefault(an.get("kind", "unknown"), []).append(an)
         chips = []
@@ -75,7 +78,7 @@ def render_statement_card(stmt: dict, file_label: str) -> None:
             key=f"side-{file_label}-{period_key}-{last4_key}",
         )
     with f2:
-        cat_filter = "all"
+        cat_filter: str | None = "all"
         if "category" in df.columns:
             cats = sorted({c for c in df["category"].dropna().unique()})
             cat_filter = st.selectbox(
@@ -88,7 +91,10 @@ def render_statement_card(stmt: dict, file_label: str) -> None:
         if "confidence" in df.columns and df["confidence"].notna().any():
             min_conf = st.slider(
                 "Min confidence",
-                0.0, 1.0, 0.0, 0.05,
+                0.0,
+                1.0,
+                0.0,
+                0.05,
                 key=f"conf-{file_label}-{period_key}-{last4_key}",
             )
 

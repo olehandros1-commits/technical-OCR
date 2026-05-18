@@ -27,7 +27,9 @@ class AuditPresenter:
             st.info("No telemetry data available.")
 
         st.markdown("### Audit Log")
-        limit = st.number_input("Entries to fetch", min_value=10, max_value=1000, value=100, step=10)
+        limit = st.number_input(
+            "Entries to fetch", min_value=10, max_value=1000, value=100, step=10
+        )
         records = self._client.get_audit(int(limit))
         if records:
             st.dataframe(pd.DataFrame(records), use_container_width=True)

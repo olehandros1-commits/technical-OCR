@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel
 
 
@@ -10,8 +12,8 @@ class ExtractRequest(BaseModel):
 
 
 class ExtractResponse(BaseModel):
-    results: list[dict]
-    telemetry: dict
+    results: list[dict[str, Any]]
+    telemetry: dict[str, Any]
 
 
 class JobCreatedResponse(BaseModel):
@@ -21,5 +23,5 @@ class JobCreatedResponse(BaseModel):
 class JobResultResponse(BaseModel):
     job_id: str
     done: bool
-    results: list[dict] | None = None
+    results: list[dict[str, Any]] | None = None
     error: str | None = None

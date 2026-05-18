@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from dishka import make_async_container
@@ -25,14 +27,63 @@ from dobs.presentation.api.http.v1.telemetry.router import router as telemetry_r
 log = get_logger(__name__)
 
 
+def _maybe_setup_sentry() -> None:
+    dsn = os.getenv("SENTRY_DSN")
+    if not dsn:
+        return
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+
+        sentry_sdk.init(
+            dsn=dsn,
+            integrations=[FastApiIntegration()],
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            environment=os.getenv("SENTRY_ENV", "dev"),
+        )
+    except ImportError:
+        pass
+
+
+def _maybe_setup_otel(app: FastAPI) -> None:
+    if not os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        return
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+        FastAPIInstrumentor.instrument_app(app)
+        HTTPXClientInstrumentor().instrument()
+        try:
+            from opentelemetry.instrumentation.redis import RedisInstrumentor
+
+            RedisInstrumentor().instrument()
+        except ImportError:
+            pass
+    except ImportError:
+        pass
+
+
+def _maybe_setup_metrics(app: FastAPI) -> None:
+    if os.getenv("DOBS_DISABLE_METRICS"):
+        return
+    try:
+        from prometheus_fastapi_instrumentator import Instrumentator
+
+        Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    except ImportError:
+        pass
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(level=settings.log_level, json_output=settings.log_json)
+    _maybe_setup_sentry()
 
     container = make_async_container(*build_providers())
 
     @asynccontextmanager
-    async def _lifespan(app: FastAPI):
+    async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         log.info("api startup")
         yield
         async with container() as scope:
@@ -64,6 +115,9 @@ def create_app() -> FastAPI:
     configured_cors(app)
     app.add_middleware(TenantMiddleware)
     app.add_middleware(RequestIdMiddleware)
+
+    _maybe_setup_otel(app)
+    _maybe_setup_metrics(app)
 
     setup_dishka(container=container, app=app)
     return app

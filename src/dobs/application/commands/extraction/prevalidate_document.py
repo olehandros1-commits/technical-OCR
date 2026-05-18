@@ -8,7 +8,6 @@ from dobs.application.errors import NotABankStatementError
 from dobs.application.ports.llm_backend import LLMBackendPort
 from dobs.domain.value_objects.llm_role import LLMRole
 
-
 _SYSTEM = """You are a one-shot document classifier. Decide whether the
 text below comes from a BANK STATEMENT (an account-summary document
 showing beginning balance, transactions, ending balance for a bank
@@ -48,9 +47,7 @@ class PrevalidateDocumentHandler:
     async def __call__(self, command: PrevalidateDocumentCommand) -> None:
         head = command.text[:4000].strip()
         if len(head) < 200:
-            raise NotABankStatementError(
-                "Document text too short to be a bank statement"
-            )
+            raise NotABankStatementError("Document text too short to be a bank statement")
         user = (
             "Classify the following document text. Return ONLY the structured "
             "verdict.\n\n--- DOCUMENT TEXT ---\n" + head + "\n--- END ---"

@@ -33,7 +33,7 @@ class CompositeOcrEngine(OcrEnginePort):
         self,
         path: str,
         *,
-        log_event: Callable | None = None,
+        log_event: Callable[..., object] | None = None,
         ocr_mode: OcrMode = "auto",
     ) -> str:
         p = Path(path)

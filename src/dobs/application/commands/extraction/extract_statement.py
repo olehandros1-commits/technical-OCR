@@ -26,11 +26,12 @@ from dobs.application.ports.audit_sink import AuditSinkPort
 from dobs.application.ports.cache import StatementCachePort
 from dobs.application.ports.event_bus import EventBusPort
 from dobs.application.ports.lessons_store import LessonsStorePort
+from dobs.application.ports.llm_backend import LLMBackendPort
 from dobs.application.ports.ocr_engine import OcrEnginePort
 from dobs.application.ports.telemetry_collector import TelemetryCollectorPort
 from dobs.application.ports.vendor_enricher import VendorEnricherPort
-from dobs.application.services.segmenter import StatementSegment, StatementSegmenter
 from dobs.application.services.lessons_helpers import LessonsHelper
+from dobs.application.services.segmenter import StatementSegment, StatementSegmenter
 from dobs.domain.entities.audit_record import AuditRecord
 from dobs.domain.entities.statement import Statement
 from dobs.domain.services.anomaly_detector import AnomalyDetector
@@ -38,7 +39,6 @@ from dobs.domain.services.continuity_auditor import ContinuityAuditor
 from dobs.domain.services.forensic_detector import ForensicAnomalyDetector
 from dobs.domain.services.reconcile import Reconciler
 from dobs.domain.services.recurring_detector import RecurringDetector
-from dobs.application.ports.llm_backend import LLMBackendPort
 from dobs.main.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -102,9 +102,7 @@ class ExtractStatementHandler:
 
     @staticmethod
     def _cache_key(seg: StatementSegment, backend_name: str, tenant: str) -> str:
-        h = hashlib.sha256(
-            f"{backend_name}|{seg.text}".encode("utf-8")
-        ).hexdigest()[:16]
+        h = hashlib.sha256(f"{backend_name}|{seg.text}".encode()).hexdigest()[:16]
         return (
             f"{tenant}::"
             f"{seg.period_start_raw.replace('/', '-')}_"
@@ -131,24 +129,25 @@ class ExtractStatementHandler:
 
         cached = await self._cache.get(cache_key)
         if cached is not None:
-            await self._event_bus.publish("cache_hit", {
-                "label": label, "backend": backend_name, "key": cache_key
-            })
+            await self._event_bus.publish(
+                "cache_hit", {"label": label, "backend": backend_name, "key": cache_key}
+            )
             return cached
 
-        await self._event_bus.publish("segment_start", {
-            "label": label, "chars": len(seg.text), "backend": backend_name
-        })
-
-        account, summary_vo = await self._summary(
-            ExtractSummaryCommand(segment_text=seg.text)
+        await self._event_bus.publish(
+            "segment_start", {"label": label, "chars": len(seg.text), "backend": backend_name}
         )
-        await self._event_bus.publish("summary_done", {
-            "label": label,
-            "bank": account.bank,
-            "last4": account.account_last4,
-            "period": f"{account.period.start} -> {account.period.end}",
-        })
+
+        account, summary_vo = await self._summary(ExtractSummaryCommand(segment_text=seg.text))
+        await self._event_bus.publish(
+            "summary_done",
+            {
+                "label": label,
+                "bank": account.bank,
+                "last4": account.account_last4,
+                "period": f"{account.period.start} -> {account.period.end}",
+            },
+        )
 
         tx_result = await self._transactions(
             ExtractTransactionsCommand(
@@ -157,11 +156,14 @@ class ExtractStatementHandler:
                 period_end=account.period.end,
             )
         )
-        await self._event_bus.publish("transactions_done", {
-            "label": label,
-            "count": len(tx_result.transactions),
-            "skipped": len(tx_result.skipped_rows),
-        })
+        await self._event_bus.publish(
+            "transactions_done",
+            {
+                "label": label,
+                "count": len(tx_result.transactions),
+                "skipped": len(tx_result.skipped_rows),
+            },
+        )
 
         initial_recon = await self._reconciler.reconcile(summary_vo, tx_result.transactions)
 
@@ -191,18 +193,21 @@ class ExtractStatementHandler:
                 for pattern_hash, hint in lessons:
                     await self._lessons.record(pattern_hash, hint, source=label)
                 if lessons:
-                    await self._event_bus.publish("lessons_recorded", {
-                        "label": label, "count": len(lessons)
-                    })
+                    await self._event_bus.publish(
+                        "lessons_recorded", {"label": label, "count": len(lessons)}
+                    )
             except Exception:
                 log.warning("lessons record failed", label=label, exc_info=True)
                 await self._event_bus.publish("lessons_failed", {"label": label})
 
-        await self._event_bus.publish("segment_done", {
-            "label": label,
-            "reconciled": final_recon.ok,
-            "issues": list(final_recon.issues),
-        })
+        await self._event_bus.publish(
+            "segment_done",
+            {
+                "label": label,
+                "reconciled": final_recon.ok,
+                "issues": list(final_recon.issues),
+            },
+        )
 
         if command.enrich and final_txns:
             try:
@@ -220,10 +225,13 @@ class ExtractStatementHandler:
         anomalies = list(anomalies) + list(forensic)
 
         if anomalies:
-            await self._event_bus.publish("anomalies_found", {
-                "label": label,
-                "count": len(anomalies),
-            })
+            await self._event_bus.publish(
+                "anomalies_found",
+                {
+                    "label": label,
+                    "count": len(anomalies),
+                },
+            )
 
         try:
             recurring = await self._recurring_detector.detect(final_txns)
@@ -244,29 +252,35 @@ class ExtractStatementHandler:
 
         if final_recon.ok:
             await self._cache.put(cache_key, statement)
-            await self._event_bus.publish("cache_write", {
-                "label": label, "key": cache_key
-            })
+            await self._event_bus.publish("cache_write", {"label": label, "key": cache_key})
 
         return statement
 
     async def __call__(self, command: ExtractStatementCommand) -> list[Statement]:
         import time
+
         started_at = time.time()
 
-        await self._event_bus.publish("ingest_start", {
-            "pdf": command.pdf_path,
-            "txt": command.txt_path,
-            "ocr_mode": command.ocr_mode,
-        })
+        await self._event_bus.publish(
+            "ingest_start",
+            {
+                "pdf": command.pdf_path,
+                "txt": command.txt_path,
+                "ocr_mode": command.ocr_mode,
+            },
+        )
 
         if command.txt_path:
             text = await asyncio.to_thread(
                 Path(command.txt_path).read_text, encoding="utf-8", errors="ignore"
             )
-            await self._event_bus.publish("ocr_cache_hit", {
-                "method": "txt-passthrough", "chars": len(text),
-            })
+            await self._event_bus.publish(
+                "ocr_cache_hit",
+                {
+                    "method": "txt-passthrough",
+                    "chars": len(text),
+                },
+            )
         elif command.pdf_path:
             text = await self._ocr.extract_text(
                 command.pdf_path,
@@ -281,57 +295,63 @@ class ExtractStatementHandler:
 
         segments = await self._segmenter.split(text)
         if not segments:
-            await self._event_bus.publish("segment_fallback", {
-                "reason": "regex found no boundaries, asking LLM"
-            })
+            await self._event_bus.publish(
+                "segment_fallback", {"reason": "regex found no boundaries, asking LLM"}
+            )
             segments = await self._segmenter.split_with_llm(text, self._llm)
 
-        await self._event_bus.publish("segment_done_all", {
-            "statement_count": len(segments),
-            "periods": [s.period_start_raw for s in segments],
-        })
+        await self._event_bus.publish(
+            "segment_done_all",
+            {
+                "statement_count": len(segments),
+                "periods": [s.period_start_raw for s in segments],
+            },
+        )
 
         if not segments:
             return []
 
         sem = asyncio.Semaphore(command.parallel)
-        results_maybe = await asyncio.gather(
-            *(self._process_segment(seg, command, sem) for seg in segments),
-            return_exceptions=False,
-        )
-
-        statements: list[Statement] = [s for s in results_maybe if s is not None]
+        async with asyncio.TaskGroup() as tg:
+            tasks = [tg.create_task(self._process_segment(seg, command, sem)) for seg in segments]
+        statements: list[Statement] = [r for t in tasks if (r := t.result()) is not None]
 
         if len(statements) >= 2:
             continuity_issues = await self._continuity_auditor.audit(statements)
             if continuity_issues:
-                await self._event_bus.publish("continuity_issues", {
-                    "count": len(continuity_issues)
-                })
+                await self._event_bus.publish(
+                    "continuity_issues", {"count": len(continuity_issues)}
+                )
+                from dobs.domain.services.continuity_auditor import ContinuityIssue
                 from dobs.domain.value_objects.anomaly import Anomaly
-                issue_by_account: dict[str | None, list] = {}
+
+                issue_by_account: dict[str | None, list[ContinuityIssue]] = {}
                 for iss in continuity_issues:
                     issue_by_account.setdefault(iss.account_last4, []).append(iss)
                 for stmt in statements:
                     for iss in issue_by_account.get(stmt.account.account_last4, []):
-                        stmt.anomalies.append(Anomaly(
-                            kind="running_balance_drift",
-                            severity="error",
-                            transaction_index=None,
-                            related_index=None,
-                            message=(
-                                f"[continuity] balance gap: expected "
-                                f"{iss.expected_beginning:.2f} got "
-                                f"{iss.actual_beginning:.2f}"
-                            ),
-                        ))
+                        stmt.anomalies.append(
+                            Anomaly(
+                                kind="running_balance_drift",
+                                severity="error",
+                                transaction_index=None,
+                                related_index=None,
+                                message=(
+                                    f"[continuity] balance gap: expected "
+                                    f"{iss.expected_beginning:.2f} got "
+                                    f"{iss.actual_beginning:.2f}"
+                                ),
+                            )
+                        )
 
         try:
-            await self._vendor.enrich_in_place([
-                {"description": t.description, "vendor": t.vendor}
-                for stmt in statements
-                for t in stmt.transactions
-            ])
+            await self._vendor.enrich_in_place(
+                [
+                    {"description": t.description, "vendor": t.vendor}
+                    for stmt in statements
+                    for t in stmt.transactions
+                ]
+            )
         except Exception:
             log.warning("vendor enrich step failed", exc_info=True)
             await self._event_bus.publish("vendor_enrich_failed", {})
@@ -343,8 +363,10 @@ class ExtractStatementHandler:
                 tier=command.tier,
                 backend=getattr(self._llm, "name", None),
                 source_filename=(
-                    Path(command.pdf_path).name if command.pdf_path
-                    else Path(command.txt_path).name if command.txt_path
+                    Path(command.pdf_path).name
+                    if command.pdf_path
+                    else Path(command.txt_path).name
+                    if command.txt_path
                     else None
                 ),
                 statement_count=len(statements),
@@ -352,7 +374,7 @@ class ExtractStatementHandler:
                     1 for s in statements if s.reconciliation and s.reconciliation.ok
                 ),
                 transactions_count=sum(len(s.transactions) for s in statements),
-                total_cost_usd=float(tel.get("total_cost_usd", 0.0)),
+                total_cost_usd=float(tel.get("total_cost_usd", 0.0) or 0.0),  # type: ignore[arg-type]  # dict[str, object]
                 elapsed_s=round(time.time() - started_at, 2),
                 metadata={
                     "ocr_mode": command.ocr_mode,
@@ -362,15 +384,21 @@ class ExtractStatementHandler:
                 },
             )
             audit_id = await self._audit.record(started_at, audit_rec)
-            await self._event_bus.publish("audit_recorded", {
-                "audit_id": audit_id,
-                "total_cost_usd": round(audit_rec.total_cost_usd, 4),
-                "elapsed_s": audit_rec.elapsed_s,
-            })
+            await self._event_bus.publish(
+                "audit_recorded",
+                {
+                    "audit_id": audit_id,
+                    "total_cost_usd": round(audit_rec.total_cost_usd, 4),
+                    "elapsed_s": audit_rec.elapsed_s,
+                },
+            )
         except Exception:
             log.error("AUDIT RECORD FAILED — compliance gap", exc_info=True)
-            await self._event_bus.publish("audit_failed", {
-                "elapsed_s": round(time.time() - started_at, 2),
-            })
+            await self._event_bus.publish(
+                "audit_failed",
+                {
+                    "elapsed_s": round(time.time() - started_at, 2),
+                },
+            )
 
         return statements

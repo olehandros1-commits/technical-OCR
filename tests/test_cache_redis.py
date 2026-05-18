@@ -1,11 +1,11 @@
 import uuid
 
-from dobs.infrastructure.adapters.cache.memory_cache import MemoryStatementCache as MemoryCache
-from dobs.infrastructure.adapters.cache.resolver import open_cache
 from dobs.domain.entities.statement import Statement
 from dobs.domain.value_objects.account import Account
 from dobs.domain.value_objects.period import Period
 from dobs.domain.value_objects.summary import Summary
+from dobs.infrastructure.adapters.cache.memory_cache import MemoryStatementCache as MemoryCache
+from dobs.infrastructure.adapters.cache.resolver import open_cache
 
 
 def _statement() -> Statement:

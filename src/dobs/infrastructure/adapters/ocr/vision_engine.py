@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict
 
 from dobs.application.ports.ocr_engine import OcrEnginePort
+from dobs.domain.value_objects.image_part import ImagePart
 from dobs.infrastructure.adapters.ocr.file_reader import (
     IngestError,
     clean_text,
@@ -55,8 +56,8 @@ def _pdf_pages_to_images(pdf_path: Path, dpi: int = 200) -> list[bytes]:
     return out
 
 
-def _batches(items: list, n: int) -> list[list]:
-    return [items[i:i + n] for i in range(0, len(items), n)]
+def _batches(items: list[bytes], n: int) -> list[list[bytes]]:
+    return [items[i : i + n] for i in range(0, len(items), n)]
 
 
 class VisionOcrEngine(OcrEnginePort):
@@ -76,11 +77,11 @@ class VisionOcrEngine(OcrEnginePort):
         self,
         path: str,
         *,
-        log_event: Callable | None = None,
+        log_event: Callable[..., object] | None = None,
     ) -> str:
         if not self._backend.supports_vision():
             raise IngestError(
-                f"Backend does not support vision; use a vision-capable backend for this path."
+                "Backend does not support vision; use a vision-capable backend for this path."
             )
 
         p = Path(path)
@@ -89,7 +90,7 @@ class VisionOcrEngine(OcrEnginePort):
 
         for i, batch in enumerate(_batches(pages, self._pages_per_call)):
             images = [
-                {"mime_type": "image/png", "data_b64": base64.b64encode(b).decode("ascii")}
+                ImagePart(mime_type="image/png", data_b64=base64.b64encode(b).decode("ascii"))
                 for b in batch
             ]
             user = (
@@ -104,9 +105,12 @@ class VisionOcrEngine(OcrEnginePort):
             )
             transcripts.append(resp.page_text)
             if log_event:
-                log_event("ocr_vision_batch", {
-                    "batch": i + 1,
-                    "chars": len(resp.page_text),
-                })
+                log_event(
+                    "ocr_vision_batch",
+                    {
+                        "batch": i + 1,
+                        "chars": len(resp.page_text),
+                    },
+                )
 
         return clean_text("\n\n".join(transcripts))

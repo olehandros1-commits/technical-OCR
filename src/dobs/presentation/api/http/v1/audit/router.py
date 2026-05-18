@@ -16,6 +16,6 @@ router = APIRouter(
 async def get_audit_log(
     handler: FromDishka[GetAuditLogHandler],
     limit: int = Query(default=50, ge=1, le=500),
-) -> dict:
+) -> dict[str, object]:
     result = await handler(GetAuditLogQuery(limit=limit))
     return {"entries": result}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import streamlit as st
 
 from dobs.presentation.streamlit.client import ApiClient
@@ -7,27 +9,29 @@ from dobs.presentation.streamlit.components.statement_card import render_stateme
 from dobs.presentation.streamlit.state import SessionState
 
 
-def _build_review_queue(results: list[dict], threshold: float) -> list[dict]:
-    queue: list[dict] = []
+def _build_review_queue(results: list[dict[str, Any]], threshold: float) -> list[dict[str, Any]]:
+    queue: list[dict[str, Any]] = []
     for s_idx, r in enumerate(results):
         acct = r.get("account") or {}
         period_start = (acct.get("period") or {}).get("start", "?")
         for t_idx, t in enumerate(r.get("transactions", [])):
             conf = t.get("confidence")
             if conf is not None and conf < threshold:
-                queue.append({
-                    "stmt_idx": s_idx,
-                    "tx_idx": t_idx,
-                    "period": period_start,
-                    "date": t.get("date", ""),
-                    "description": t.get("description", ""),
-                    "amount": t.get("deposit") or t.get("withdrawal") or 0,
-                    "side": "deposit" if t.get("deposit") else "withdrawal",
-                    "confidence": conf,
-                    "reason": f"low confidence ({conf:.2f})",
-                    "anomaly": None,
-                    "statement_key": f"{period_start}_{acct.get('account_last4', '')}",
-                })
+                queue.append(
+                    {
+                        "stmt_idx": s_idx,
+                        "tx_idx": t_idx,
+                        "period": period_start,
+                        "date": t.get("date", ""),
+                        "description": t.get("description", ""),
+                        "amount": t.get("deposit") or t.get("withdrawal") or 0,
+                        "side": "deposit" if t.get("deposit") else "withdrawal",
+                        "confidence": conf,
+                        "reason": f"low confidence ({conf:.2f})",
+                        "anomaly": None,
+                        "statement_key": f"{period_start}_{acct.get('account_last4', '')}",
+                    }
+                )
         for an in r.get("_anomalies", []):
             if an.get("severity") in ("warn", "error") and an.get("transaction_index") is not None:
                 t_idx = an["transaction_index"]
@@ -35,19 +39,21 @@ def _build_review_queue(results: list[dict], threshold: float) -> list[dict]:
                 if t_idx >= len(txns):
                     continue
                 t = txns[t_idx]
-                queue.append({
-                    "stmt_idx": s_idx,
-                    "tx_idx": t_idx,
-                    "period": period_start,
-                    "date": t.get("date", ""),
-                    "description": t.get("description", ""),
-                    "amount": t.get("deposit") or t.get("withdrawal") or 0,
-                    "side": "deposit" if t.get("deposit") else "withdrawal",
-                    "confidence": t.get("confidence"),
-                    "reason": f"{an['kind']}: {an['message']}",
-                    "anomaly": an,
-                    "statement_key": f"{period_start}_{acct.get('account_last4', '')}",
-                })
+                queue.append(
+                    {
+                        "stmt_idx": s_idx,
+                        "tx_idx": t_idx,
+                        "period": period_start,
+                        "date": t.get("date", ""),
+                        "description": t.get("description", ""),
+                        "amount": t.get("deposit") or t.get("withdrawal") or 0,
+                        "side": "deposit" if t.get("deposit") else "withdrawal",
+                        "confidence": t.get("confidence"),
+                        "reason": f"{an['kind']}: {an['message']}",
+                        "anomaly": an,
+                        "statement_key": f"{period_start}_{acct.get('account_last4', '')}",
+                    }
+                )
     return queue
 
 
@@ -87,10 +93,9 @@ class ReviewPresenter:
 
                 self._render_file_tab(file_label, results, thr)
 
-    def _render_file_tab(self, file_label: str, results: list[dict], thr: float) -> None:
+    def _render_file_tab(self, file_label: str, results: list[dict[str, Any]], thr: float) -> None:
         total_tx = sum(len(r.get("transactions", [])) for r in results)
         ok_count = sum(1 for r in results if (r.get("_reconciliation") or {}).get("ok"))
-        total_anom = sum(len(r.get("_anomalies", [])) for r in results)
         review_queue = _build_review_queue(results, thr)
 
         m1, m2, m3, m4 = st.columns(4)
@@ -128,7 +133,7 @@ class ReviewPresenter:
             self._download_xlsx(file_label)
 
     def _render_review_queue(
-        self, file_label: str, results: list[dict], queue: list[dict]
+        self, file_label: str, results: list[dict[str, Any]], queue: list[dict[str, Any]]
     ) -> None:
         for i, item in enumerate(queue[:30]):
             cols = st.columns([3, 1, 1, 1, 1])
@@ -180,8 +185,11 @@ class ReviewPresenter:
         try:
             with st.spinner("Generating Excel…"):
                 xlsx_bytes = self._client.export_xlsx(
-                    pdf_bytes, pdf_name,
-                    self._state.tier, self._state.enrich, self._state.parallel,
+                    pdf_bytes,
+                    pdf_name,
+                    self._state.tier,
+                    self._state.enrich,
+                    self._state.parallel,
                 )
             st.download_button(
                 ":arrow_down: Save Excel",

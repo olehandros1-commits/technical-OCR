@@ -16,7 +16,9 @@ class Reconciler:
     def _round(self, x: float) -> float:
         return round(x, 2)
 
-    async def reconcile(self, summary: Summary, transactions: list[Transaction]) -> ReconciliationResult:
+    async def reconcile(
+        self, summary: Summary, transactions: list[Transaction]
+    ) -> ReconciliationResult:
         deps = [t.deposit for t in transactions if t.deposit is not None]
         withs = [t.withdrawal for t in transactions if t.withdrawal is not None]
         dep_sum = self._round(sum(deps))

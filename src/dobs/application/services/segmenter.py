@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -9,7 +8,6 @@ from datetime import date
 from dobs.application.ports.llm_backend import LLMBackendPort
 from dobs.domain.services.prompt_sanitizer import PromptSanitizer
 from dobs.domain.value_objects.llm_role import LLMRole
-
 
 _BEGINNING_BAL_RE = re.compile(
     r"Beginning Balance as of\s+(\d{2}/\d{2}/\d{4})",

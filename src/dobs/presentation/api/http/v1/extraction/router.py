@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import aiofiles
@@ -64,8 +65,14 @@ async def _persist_uploads(
 
 
 def _build_command(
-    *, pdf_path: Path | None, txt_path: Path | None, tier: str,
-    ocr_mode: str, enrich: bool, parallel: int, tenant: str,
+    *,
+    pdf_path: Path | None,
+    txt_path: Path | None,
+    tier: str,
+    ocr_mode: str,
+    enrich: bool,
+    parallel: int,
+    tenant: str,
 ) -> ExtractStatementCommand:
     return ExtractStatementCommand(
         pdf_path=str(pdf_path) if pdf_path else None,
@@ -91,8 +98,12 @@ async def extract(
 ) -> ExtractResponse:
     pdf_path, txt_path = await _persist_uploads(pdf, txt)
     command = _build_command(
-        pdf_path=pdf_path, txt_path=txt_path, tier=tier,
-        ocr_mode=ocr_mode, enrich=enrich, parallel=parallel,
+        pdf_path=pdf_path,
+        txt_path=txt_path,
+        tier=tier,
+        ocr_mode=ocr_mode,
+        enrich=enrich,
+        parallel=parallel,
         tenant=current_tenant(),
     )
     results = await handler(command)
@@ -116,8 +127,13 @@ async def create_job(
     job_id = str(uuid.uuid4())
     tenant = current_tenant()
     command = _build_command(
-        pdf_path=pdf_path, txt_path=txt_path, tier=tier,
-        ocr_mode=ocr_mode, enrich=enrich, parallel=parallel, tenant=tenant,
+        pdf_path=pdf_path,
+        txt_path=txt_path,
+        tier=tier,
+        ocr_mode=ocr_mode,
+        enrich=enrich,
+        parallel=parallel,
+        tenant=tenant,
     )
 
     redis_url = os.getenv("REDIS_URL")
@@ -125,6 +141,7 @@ async def create_job(
 
     if redis_url:
         from dobs.infrastructure.adapters.jobs.arq_job_queue import ArqJobQueue
+
         queue = ArqJobQueue(redis_url=redis_url)
         await queue.enqueue(job_id, command)
         log.info("job enqueued to arq", job_id=job_id, tenant=tenant, tier=tier)
@@ -158,13 +175,13 @@ async def job_events(
     if not await store.exists(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
-    async def _stream():
+    async def _stream() -> AsyncIterator[str]:
         events_iter = store.read_events(job_id).__aiter__()
         while True:
             next_task = asyncio.ensure_future(events_iter.__anext__())
             try:
                 event = await asyncio.wait_for(next_task, timeout=_SSE_HEARTBEAT_S)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield ": heartbeat\n\n"
                 continue
             except StopAsyncIteration:
@@ -196,8 +213,8 @@ async def extract_bulk(
     ocr_mode: str = Form("auto"),
     enrich: bool = Form(False),
     parallel: int = Form(2),
-) -> dict:
-    all_results: list[dict] = []
+) -> dict[str, object]:
+    all_results: list[dict[str, object]] = []
     tenant = current_tenant()
     for upload in files:
         tmp = _upload_root() / uuid.uuid4().hex
@@ -206,8 +223,13 @@ async def extract_bulk(
         async with aiofiles.open(pdf_path, "wb") as f:
             await f.write(await upload.read())
         command = _build_command(
-            pdf_path=pdf_path, txt_path=None, tier=tier,
-            ocr_mode=ocr_mode, enrich=enrich, parallel=parallel, tenant=tenant,
+            pdf_path=pdf_path,
+            txt_path=None,
+            tier=tier,
+            ocr_mode=ocr_mode,
+            enrich=enrich,
+            parallel=parallel,
+            tenant=tenant,
         )
         results = await handler(command)
         all_results.extend(serialize_results(results))
@@ -229,8 +251,12 @@ async def export_xlsx(
 
     pdf_path, txt_path = await _persist_uploads(pdf, txt)
     command = _build_command(
-        pdf_path=pdf_path, txt_path=txt_path, tier=tier,
-        ocr_mode=ocr_mode, enrich=enrich, parallel=parallel,
+        pdf_path=pdf_path,
+        txt_path=txt_path,
+        tier=tier,
+        ocr_mode=ocr_mode,
+        enrich=enrich,
+        parallel=parallel,
         tenant=current_tenant(),
     )
     results = await handler(command)

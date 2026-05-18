@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Iterable
 
 from dobs.domain.value_objects.transaction import Transaction
-
 
 _DATE_LINE_RE = re.compile(
     r"\b("
@@ -44,8 +43,18 @@ class TransactionChunker:
 
     def _month_to_num(self, abbr: str) -> int:
         return {
-            "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
-            "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
+            "Jan": 1,
+            "Feb": 2,
+            "Mar": 3,
+            "Apr": 4,
+            "May": 5,
+            "Jun": 6,
+            "Jul": 7,
+            "Aug": 8,
+            "Sep": 9,
+            "Oct": 10,
+            "Nov": 11,
+            "Dec": 12,
         }[abbr.title()]
 
     def _date_line_positions(self, text: str, year: int) -> list[tuple[int, date]]:
@@ -99,13 +108,15 @@ class TransactionChunker:
         positions = rolled
 
         if len(positions) < min_transactions_to_chunk:
-            return [TransactionChunk(
-                text=segment_text,
-                date_range_start=p_start,
-                date_range_end=p_end,
-                chunk_index=0,
-                total_chunks=1,
-            )]
+            return [
+                TransactionChunk(
+                    text=segment_text,
+                    date_range_start=p_start,
+                    date_range_end=p_end,
+                    chunk_index=0,
+                    total_chunks=1,
+                )
+            ]
 
         unique_dates = sorted({d for _, d in positions})
         if len(unique_dates) < n_chunks:
@@ -134,16 +145,18 @@ class TransactionChunker:
                 (off for off, d in positions if d >= chunk_start),
                 0,
             )
-            header = segment_text[:min(800, start_off)]
+            header = segment_text[: min(800, start_off)]
             body_slice = body[start_off:cut_off]
             body_slice += tail if i == n_chunks - 1 else ""
-            chunks.append(TransactionChunk(
-                text=header + "\n\n" + body_slice,
-                date_range_start=chunk_start,
-                date_range_end=chunk_end,
-                chunk_index=i,
-                total_chunks=n_chunks,
-            ))
+            chunks.append(
+                TransactionChunk(
+                    text=header + "\n\n" + body_slice,
+                    date_range_start=chunk_start,
+                    date_range_end=chunk_end,
+                    chunk_index=i,
+                    total_chunks=n_chunks,
+                )
+            )
         return chunks
 
     def merge(self, chunked_results: Iterable[list[Transaction]]) -> list[Transaction]:
@@ -153,8 +166,12 @@ class TransactionChunker:
             for t in chunk:
                 side = "D" if t.deposit is not None else "W"
                 amount = t.deposit if t.deposit is not None else (t.withdrawal or 0.0)
-                key = (t.date, side, round(amount, 2),
-                       re.sub(r"\s+", " ", t.description.strip())[:80])
+                key = (
+                    t.date,
+                    side,
+                    round(amount, 2),
+                    re.sub(r"\s+", " ", t.description.strip())[:80],
+                )
                 if key in seen:
                     continue
                 seen.add(key)

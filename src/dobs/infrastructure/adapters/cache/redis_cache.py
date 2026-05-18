@@ -18,10 +18,11 @@ class RedisStatementCache(StatementCachePort):
         key_prefix: str = "bse:",
     ) -> None:
         from redis.asyncio import Redis
+
         self._client: Redis = Redis.from_url(url, decode_responses=True)
         self._key_prefix = key_prefix
-        ttl_days = ttl_days if ttl_days is not None else float(
-            os.getenv("EXTRACTOR_CACHE_TTL_DAYS", "30")
+        ttl_days = (
+            ttl_days if ttl_days is not None else float(os.getenv("EXTRACTOR_CACHE_TTL_DAYS", "30"))
         )
         self._ttl_seconds: int | None = int(ttl_days * 86400) if ttl_days > 0 else None
 
@@ -43,7 +44,7 @@ class RedisStatementCache(StatementCachePort):
 
     async def delete(self, key: str) -> bool:
         result = await self._client.delete(self._k(key))
-        return result > 0
+        return bool(result > 0)
 
     async def clear(self) -> int:
         count = 0
@@ -57,15 +58,17 @@ class RedisStatementCache(StatementCachePort):
                 await self._client.delete(*keys)
         return count
 
-    async def keys(self, limit: int = 200) -> list[dict]:
+    async def keys(self, limit: int = 200) -> list[dict[str, object]]:
         result = []
         async for k in self._client.scan_iter(match=self._k("*"), count=500):
-            result.append({"key": k[len(self._key_prefix):], "created_at": None, "reconciled": False})
+            result.append(
+                {"key": k[len(self._key_prefix) :], "created_at": None, "reconciled": False}
+            )
             if len(result) >= limit:
                 break
         return result
 
-    async def stats(self) -> dict:
+    async def stats(self) -> dict[str, object]:
         total = 0
         async for _ in self._client.scan_iter(match=self._k("*"), count=500):
             total += 1

@@ -10,7 +10,6 @@ from dobs.domain.value_objects.llm_role import LLMRole
 from dobs.domain.value_objects.transaction import Transaction
 from dobs.domain.value_objects.tx_category import TxCategory
 
-
 _SYSTEM = """You categorise bank transactions and assess your own confidence
 that each row is correct.
 
@@ -74,7 +73,7 @@ class EnrichTransactionsHandler:
 
         out = list(command.transactions)
         for start in range(0, len(out), command.batch_size):
-            batch = out[start:start + command.batch_size]
+            batch = out[start : start + command.batch_size]
             records = [
                 {
                     "index": start + i,
@@ -86,7 +85,7 @@ class EnrichTransactionsHandler:
             ]
             user = (
                 "Categorise these transactions and rate your confidence. "
-                "Return a JSON object {\"items\": [...]} with one item per row.\n\n"
+                'Return a JSON object {"items": [...]} with one item per row.\n\n'
                 f"{json.dumps(records, indent=2)}"
             )
             try:

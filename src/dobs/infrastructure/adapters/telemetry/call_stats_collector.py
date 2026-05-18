@@ -24,7 +24,7 @@ class CallStatsCollector(TelemetryCollectorPort):
             except RuntimeError:
                 pass
 
-    def summary(self) -> dict:
+    def summary(self) -> dict[str, object]:
         with self._lock:
             calls = list(self._calls)
         if not calls:

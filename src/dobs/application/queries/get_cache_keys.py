@@ -19,5 +19,5 @@ class GetCacheKeysHandler:
     ) -> None:
         self._cache = cache
 
-    async def __call__(self, query: GetCacheKeysQuery) -> list[dict]:
+    async def __call__(self, query: GetCacheKeysQuery) -> list[dict[str, object]]:
         return await self._cache.keys(limit=query.limit)

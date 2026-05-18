@@ -8,7 +8,11 @@ import structlog
 request_id_ctx: ContextVar[str | None] = ContextVar("dobs_request_id", default=None)
 
 
-def _inject_request_id(_, __, event_dict):
+def _inject_request_id(
+    _: object,
+    __: str,
+    event_dict: dict[str, object],
+) -> dict[str, object]:
     rid = request_id_ctx.get()
     if rid:
         event_dict["request_id"] = rid
@@ -18,9 +22,11 @@ def _inject_request_id(_, __, event_dict):
 def configure_logging(*, level: str = "INFO", json_output: bool = False) -> None:
     logging.basicConfig(level=level, format="%(message)s")
 
-    processors = [
+    from structlog.types import Processor
+
+    processors: list[Processor] = [
         structlog.contextvars.merge_contextvars,
-        _inject_request_id,
+        _inject_request_id,  # type: ignore[list-item]  # structlog processor signature
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
     ]
@@ -39,4 +45,4 @@ def configure_logging(*, level: str = "INFO", json_output: bool = False) -> None
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
-    return structlog.get_logger(name)
+    return structlog.get_logger(name)  # type: ignore[no-any-return]  # structlog returns Any

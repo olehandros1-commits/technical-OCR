@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-
 DOC_FENCE_OPEN = "<<<DOCUMENT_TEXT>>>"
 DOC_FENCE_CLOSE = "<<</DOCUMENT_TEXT>>>"
 
@@ -10,30 +9,42 @@ DOC_FENCE_CLOSE = "<<</DOCUMENT_TEXT>>>"
 class PromptSanitizer:
     __slots__ = ()
 
-    _INJECTION_PATTERNS: list[tuple[re.Pattern, str]] = [
-        (re.compile(r"(?i)ignore (?:(?:all|the|any) )?(?:previous|prior|above) (?:instructions?|prompts?|rules?)"),
-         "ignore-previous"),
-        (re.compile(r"(?i)disregard (?:the |all |any )?(?:previous|prior|above)"),
-         "disregard-previous"),
-        (re.compile(r"(?i)you are (?:now|actually) (?:a|an) [a-z ]+ (?:assistant|model|agent)"),
-         "role-override"),
-        (re.compile(r"(?i)forget (?:everything|all (?:your )?(?:previous |prior )?instructions?)"),
-         "forget-instructions"),
-        (re.compile(r"(?i)new (system|user|assistant) (prompt|message|instruction)"),
-         "new-message-claim"),
-        (re.compile(r"<\|(?:system|user|assistant|im_start|im_end)\|>", re.IGNORECASE),
-         "role-token"),
-        (re.compile(r"\{\{[^}]*system[^}]*\}\}", re.IGNORECASE),
-         "template-injection"),
-        (re.compile(r"(?i)<system>.*?</system>", re.DOTALL),
-         "fake-system-tag"),
-        (re.compile(r'"tool_use_id"\s*:\s*"', re.IGNORECASE),
-         "tool-id-leak"),
-        (re.compile(r"```\s*(?:json|tool_use|function)", re.IGNORECASE),
-         "tool-fence"),
+    _INJECTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+        (
+            re.compile(
+                r"(?i)ignore (?:(?:all|the|any) )?(?:previous|prior|above) (?:instructions?|prompts?|rules?)"
+            ),
+            "ignore-previous",
+        ),
+        (
+            re.compile(r"(?i)disregard (?:the |all |any )?(?:previous|prior|above)"),
+            "disregard-previous",
+        ),
+        (
+            re.compile(r"(?i)you are (?:now|actually) (?:a|an) [a-z ]+ (?:assistant|model|agent)"),
+            "role-override",
+        ),
+        (
+            re.compile(
+                r"(?i)forget (?:everything|all (?:your )?(?:previous |prior )?instructions?)"
+            ),
+            "forget-instructions",
+        ),
+        (
+            re.compile(r"(?i)new (system|user|assistant) (prompt|message|instruction)"),
+            "new-message-claim",
+        ),
+        (
+            re.compile(r"<\|(?:system|user|assistant|im_start|im_end)\|>", re.IGNORECASE),
+            "role-token",
+        ),
+        (re.compile(r"\{\{[^}]*system[^}]*\}\}", re.IGNORECASE), "template-injection"),
+        (re.compile(r"(?i)<system>.*?</system>", re.DOTALL), "fake-system-tag"),
+        (re.compile(r'"tool_use_id"\s*:\s*"', re.IGNORECASE), "tool-id-leak"),
+        (re.compile(r"```\s*(?:json|tool_use|function)", re.IGNORECASE), "tool-fence"),
     ]
 
-    _PII_PATTERNS: list[tuple[re.Pattern, str]] = [
+    _PII_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
         (re.compile(r"\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b"), "[CARD]"),
         (re.compile(r"\b(?:ABA|Routing)[: #]+\d{9}\b", re.IGNORECASE), "[ROUTING]"),

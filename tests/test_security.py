@@ -1,7 +1,7 @@
 from dobs.domain.services.prompt_sanitizer import (
-    PromptSanitizer,
-    DOC_FENCE_OPEN,
     DOC_FENCE_CLOSE,
+    DOC_FENCE_OPEN,
+    PromptSanitizer,
 )
 
 _sanitizer = PromptSanitizer()

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 SUMMARY_SYSTEM = """You extract the SUMMARY block of ONE bank statement.
 
 You will be given the text of a single statement (already segmented from a

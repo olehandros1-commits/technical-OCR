@@ -12,7 +12,9 @@ from dobs.application.commands.extraction.enrich_transactions import EnrichTrans
 from dobs.application.commands.extraction.extract_statement import ExtractStatementHandler
 from dobs.application.commands.extraction.extract_summary import ExtractSummaryHandler
 from dobs.application.commands.extraction.extract_transactions import ExtractTransactionsHandler
-from dobs.application.commands.extraction.extract_transactions_hybrid import ExtractTransactionsHybridHandler
+from dobs.application.commands.extraction.extract_transactions_hybrid import (
+    ExtractTransactionsHybridHandler,
+)
 from dobs.application.commands.extraction.prevalidate_document import PrevalidateDocumentHandler
 from dobs.application.commands.extraction.repair_statement import RepairStatementHandler
 from dobs.application.commands.review.record_review import RecordReviewHandler
@@ -52,12 +54,17 @@ from dobs.infrastructure.adapters.cache.resolver import open_cache
 from dobs.infrastructure.adapters.event_bus.context_event_bus import ContextEventBus
 from dobs.infrastructure.adapters.jobs.background_runner import BackgroundJobRunner
 from dobs.infrastructure.adapters.jobs.memory_job_store import MemoryJobStore
-from dobs.infrastructure.adapters.lessons.sqlite_lessons_store import LESSONS_SCHEMA, SqliteLessonsStore
+from dobs.infrastructure.adapters.lessons.sqlite_lessons_store import (
+    LESSONS_SCHEMA,
+    SqliteLessonsStore,
+)
 from dobs.infrastructure.adapters.llm.anthropic_backend import AnthropicLLMBackend
 from dobs.infrastructure.adapters.ocr.composite_engine import CompositeOcrEngine
 from dobs.infrastructure.adapters.ocr.file_reader import FileReader
 from dobs.infrastructure.adapters.ocr.tesseract_engine import (
-    OCR_CACHE_SCHEMA, OcrCacheStore, TesseractOcrEngine,
+    OCR_CACHE_SCHEMA,
+    OcrCacheStore,
+    TesseractOcrEngine,
 )
 from dobs.infrastructure.adapters.ocr.vision_engine import VisionOcrEngine
 from dobs.infrastructure.adapters.replay.demo_replay import DemoReplayPlayer
@@ -65,14 +72,15 @@ from dobs.infrastructure.adapters.replay.replaying_extract_handler import Replay
 from dobs.infrastructure.adapters.review.sqlite_review_store import REVIEW_SCHEMA, SqliteReviewStore
 from dobs.infrastructure.adapters.telemetry.call_stats_collector import CallStatsCollector
 from dobs.infrastructure.adapters.vendor.clearbit_lookup import (
-    VENDOR_CACHE_SCHEMA, ClearbitVendorLookup, VendorCacheStore,
+    VENDOR_CACHE_SCHEMA,
+    ClearbitVendorLookup,
+    VendorCacheStore,
 )
 from dobs.infrastructure.adapters.vendor.composite_lookup import CompositeVendorLookup
 from dobs.infrastructure.adapters.vendor.enricher import VendorEnricher
 from dobs.infrastructure.adapters.vendor.seed_lookup import SeedVendorLookup
 from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 from dobs.main.config.settings import AppSettings, get_settings
-
 
 AuditSessions = NewType("AuditSessions", SqliteSessionFactory)
 ReviewSessions = NewType("ReviewSessions", SqliteSessionFactory)
@@ -94,33 +102,48 @@ class PersistenceProvider(Provider):
 
     @provide
     def audit_sessions(self, settings: AppSettings) -> AuditSessions:
-        return AuditSessions(SqliteSessionFactory(
-            db_path=Path(settings.audit_log_db), schema=AUDIT_SCHEMA,
-        ))
+        return AuditSessions(
+            SqliteSessionFactory(
+                db_path=Path(settings.audit_log_db),
+                schema=AUDIT_SCHEMA,
+            )
+        )
 
     @provide
     def review_sessions(self, settings: AppSettings) -> ReviewSessions:
-        return ReviewSessions(SqliteSessionFactory(
-            db_path=Path(settings.review_db), schema=REVIEW_SCHEMA,
-        ))
+        return ReviewSessions(
+            SqliteSessionFactory(
+                db_path=Path(settings.review_db),
+                schema=REVIEW_SCHEMA,
+            )
+        )
 
     @provide
     def lessons_sessions(self) -> LessonsSessions:
-        return LessonsSessions(SqliteSessionFactory(
-            db_path=Path("out/lessons.db"), schema=LESSONS_SCHEMA,
-        ))
+        return LessonsSessions(
+            SqliteSessionFactory(
+                db_path=Path("out/lessons.db"),
+                schema=LESSONS_SCHEMA,
+            )
+        )
 
     @provide
     def ocr_cache_sessions(self, settings: AppSettings) -> OcrCacheSessions:
-        return OcrCacheSessions(SqliteSessionFactory(
-            db_path=Path(settings.ocr_cache_db), schema=OCR_CACHE_SCHEMA,
-        ))
+        return OcrCacheSessions(
+            SqliteSessionFactory(
+                db_path=Path(settings.ocr_cache_db),
+                schema=OCR_CACHE_SCHEMA,
+            )
+        )
 
     @provide
     def vendor_cache_sessions(self, settings: AppSettings) -> VendorCacheSessions:
-        return VendorCacheSessions(SqliteSessionFactory(
-            db_path=Path(settings.vendor_cache_db), schema=VENDOR_CACHE_SCHEMA,
-        ))
+        return VendorCacheSessions(
+            SqliteSessionFactory(
+                db_path=Path(settings.vendor_cache_db),
+                schema=VENDOR_CACHE_SCHEMA,
+            )
+        )
 
     @provide
     def ocr_cache(self, sessions: OcrCacheSessions) -> OcrCacheStore:
@@ -147,12 +170,14 @@ class InfrastructureProvider(Provider):
         backend_name = settings.backend or os.getenv("EXTRACTOR_BACKEND", "anthropic")
         if backend_name == "ollama":
             from dobs.infrastructure.adapters.llm.ollama_backend import OllamaLLMBackend
+
             return OllamaLLMBackend(telemetry=telemetry)
         return AnthropicLLMBackend(telemetry=telemetry)
 
     @provide
     async def cache(self, settings: AppSettings) -> StatementCachePort:
-        url = settings.cache_url or os.getenv("EXTRACTOR_CACHE_URL", "out/cache.db")
+        url_opt = settings.cache_url or os.getenv("EXTRACTOR_CACHE_URL", "out/cache.db")
+        url: str = url_opt if url_opt is not None else "out/cache.db"
         return await open_cache(url)
 
     @provide
@@ -194,6 +219,7 @@ class InfrastructureProvider(Provider):
         redis_url = settings.redis_url or os.getenv("REDIS_URL")
         if redis_url:
             from dobs.infrastructure.adapters.jobs.redis_job_store import RedisJobStore
+
             return RedisJobStore(url=redis_url)
         return memory
 
@@ -207,13 +233,18 @@ class InfrastructureProvider(Provider):
         opendataloader: OcrEnginePort | None = None
         jar = os.getenv("OPENDATALOADER_JAR")
         if jar and Path(jar).exists():
-            from dobs.infrastructure.adapters.ocr.opendataloader_engine import OpenDataLoaderOcrEngine
+            from dobs.infrastructure.adapters.ocr.opendataloader_engine import (
+                OpenDataLoaderOcrEngine,
+            )
+
             try:
                 opendataloader = OpenDataLoaderOcrEngine(jar_path=Path(jar))
             except Exception:
                 opendataloader = None
         return CompositeOcrEngine(
-            file_reader=file_reader, tesseract=tesseract, vision=vision,
+            file_reader=file_reader,
+            tesseract=tesseract,
+            vision=vision,
             opendataloader=opendataloader,
         )
 
@@ -285,7 +316,9 @@ class ExtractionHandlersProvider(Provider):
         row_parser: RowParser,
     ) -> ExtractTransactionsHybridHandler:
         return ExtractTransactionsHybridHandler(
-            llm=llm, sanitizer=sanitizer, row_parser=row_parser,
+            llm=llm,
+            sanitizer=sanitizer,
+            row_parser=row_parser,
         )
 
     @provide
@@ -303,8 +336,12 @@ class ExtractionHandlersProvider(Provider):
         lessons: LessonsStorePort,
     ) -> ExtractTransactionsHandler:
         return ExtractTransactionsHandler(
-            llm=llm, hybrid=hybrid, sanitizer=sanitizer,
-            chunker=chunker, lessons_helper=lessons_helper, lessons=lessons,
+            llm=llm,
+            hybrid=hybrid,
+            sanitizer=sanitizer,
+            chunker=chunker,
+            lessons_helper=lessons_helper,
+            lessons=lessons,
         )
 
     @provide
@@ -348,13 +385,24 @@ class ExtractionHandlersProvider(Provider):
         lessons_helper: LessonsHelper,
     ) -> ExtractStatementHandler:
         return ExtractStatementHandler(
-            ocr=ocr, cache=cache, audit=audit, lessons=lessons,
-            event_bus=event_bus, telemetry=telemetry,
-            summary=summary, transactions=transactions, repair=repair,
-            enrich_cmd=enrich_cmd, vendor=vendor, llm=llm,
-            segmenter=segmenter, reconciler=reconciler,
-            anomaly_detector=anomaly_detector, continuity_auditor=continuity_auditor,
-            forensic_detector=forensic_detector, recurring_detector=recurring_detector,
+            ocr=ocr,
+            cache=cache,
+            audit=audit,
+            lessons=lessons,
+            event_bus=event_bus,
+            telemetry=telemetry,
+            summary=summary,
+            transactions=transactions,
+            repair=repair,
+            enrich_cmd=enrich_cmd,
+            vendor=vendor,
+            llm=llm,
+            segmenter=segmenter,
+            reconciler=reconciler,
+            anomaly_detector=anomaly_detector,
+            continuity_auditor=continuity_auditor,
+            forensic_detector=forensic_detector,
+            recurring_detector=recurring_detector,
             lessons_helper=lessons_helper,
         )
 
@@ -366,7 +414,9 @@ class ExtractionHandlersProvider(Provider):
         event_bus: EventBusPort,
     ) -> ReplayingExtractHandler:
         return ReplayingExtractHandler(
-            inner=inner, replay_player=replay_player, event_bus=event_bus,
+            inner=inner,
+            replay_player=replay_player,
+            event_bus=event_bus,
         )
 
 

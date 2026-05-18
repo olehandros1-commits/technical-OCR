@@ -1,4 +1,3 @@
-from datetime import date
 from dobs.application.services.chunking import TransactionChunker
 
 _chunker = TransactionChunker()
@@ -10,6 +9,8 @@ def chunk_segment_by_date_ranges(*args, **kwargs):
 
 def merge_chunks(*args, **kwargs):
     return _chunker.merge(*args, **kwargs)
+
+
 from dobs.domain.value_objects.transaction import Transaction
 
 
@@ -21,7 +22,7 @@ def _make_segment(n_days: int = 20) -> str:
         "Beginning Balance as of 04/01/2025 $1000.00",
     ]
     for day in range(1, n_days + 1):
-        lines.append(f"Apr {day:02d}   SOMETHING {day*10:.2f}   {1000+day*10:.2f}")
+        lines.append(f"Apr {day:02d}   SOMETHING {day * 10:.2f}   {1000 + day * 10:.2f}")
     lines.append("DAILY BALANCE SUMMARY")
     lines.append("Apr 01 $1010.00")
     return "\n".join(lines)
@@ -30,8 +31,11 @@ def _make_segment(n_days: int = 20) -> str:
 def test_small_segment_returns_single_chunk():
     text = _make_segment(n_days=5)
     chunks = chunk_segment_by_date_ranges(
-        text, "2025-04-01", "2025-04-30",
-        n_chunks=4, min_transactions_to_chunk=80,
+        text,
+        "2025-04-01",
+        "2025-04-30",
+        n_chunks=4,
+        min_transactions_to_chunk=80,
     )
     assert len(chunks) == 1
 
@@ -48,11 +52,14 @@ def test_large_segment_is_split():
     ]
     for i in range(100):
         d = 1 + (i % 28)
-        lines.append(f"Apr {d:02d}   ROW{i} {(i+1)*1.5:.2f}   {2000+i:.2f}")
+        lines.append(f"Apr {d:02d}   ROW{i} {(i + 1) * 1.5:.2f}   {2000 + i:.2f}")
     text2 = "\n".join(lines)
     chunks = chunk_segment_by_date_ranges(
-        text2, "2025-04-01", "2025-04-30",
-        n_chunks=4, min_transactions_to_chunk=80,
+        text2,
+        "2025-04-01",
+        "2025-04-30",
+        n_chunks=4,
+        min_transactions_to_chunk=80,
     )
     assert len(chunks) > 1
     # Each chunk has the header (bank line) preserved.
@@ -66,8 +73,11 @@ def test_chunk_hint_mentions_range():
         + [f"Apr {d:02d}   X {d}.00   {d}.00" for d in range(1, 29)] * 4
     )
     chunks = chunk_segment_by_date_ranges(
-        text, "2025-04-01", "2025-04-30",
-        n_chunks=3, min_transactions_to_chunk=10,
+        text,
+        "2025-04-01",
+        "2025-04-30",
+        n_chunks=3,
+        min_transactions_to_chunk=10,
     )
     assert len(chunks) >= 2
     hint = chunks[0].hint()

@@ -7,6 +7,8 @@ _forensic = ForensicAnomalyDetector()
 
 async def detect_forensic_anomalies(*args, **kwargs):
     return await _forensic.detect(*args, **kwargs)
+
+
 from dobs.domain.value_objects.transaction import Transaction
 
 

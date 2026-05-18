@@ -14,15 +14,17 @@ class AsyncioEventBus(EventBusPort):
         max_buffered: int = 10000,
     ) -> None:
         self._max_buffered = max_buffered
-        self._queue: asyncio.Queue[tuple[str, dict] | None] = asyncio.Queue(maxsize=max_buffered)
+        self._queue: asyncio.Queue[tuple[str, dict[str, object]] | None] = asyncio.Queue(
+            maxsize=max_buffered
+        )
 
-    async def publish(self, event_name: str, data: dict) -> None:
+    async def publish(self, event_name: str, data: dict[str, object]) -> None:
         try:
             self._queue.put_nowait((event_name, data))
         except asyncio.QueueFull:
             pass
 
-    async def subscribe(self) -> AsyncGenerator[tuple[str, dict], None]:
+    async def subscribe(self) -> AsyncGenerator[tuple[str, dict[str, object]], None]:
         while True:
             item = await self._queue.get()
             if item is None:

@@ -10,6 +10,7 @@ In CI you would run this against a re-extraction with a stubbed
 backend, then promote the snapshot to golden when you intentionally
 change behavior.
 """
+
 import json
 from pathlib import Path
 
@@ -72,14 +73,17 @@ def test_each_statement_matches_etalon(snapshot):
             continue
         s = row["summary"]
         if s["deposits_count"] != dep_cnt:
-            failures.append(f"{label} acct {acct}: deposits_count "
-                            f"{s['deposits_count']} != {dep_cnt}")
+            failures.append(
+                f"{label} acct {acct}: deposits_count {s['deposits_count']} != {dep_cnt}"
+            )
         if abs(s["deposits_total"] - dep_sum) > 0.01:
-            failures.append(f"{label} acct {acct}: deposits_total "
-                            f"{s['deposits_total']} != {dep_sum}")
+            failures.append(
+                f"{label} acct {acct}: deposits_total {s['deposits_total']} != {dep_sum}"
+            )
         if s["withdrawals_count"] != with_cnt:
-            failures.append(f"{label} acct {acct}: withdrawals_count "
-                            f"{s['withdrawals_count']} != {with_cnt}")
+            failures.append(
+                f"{label} acct {acct}: withdrawals_count {s['withdrawals_count']} != {with_cnt}"
+            )
     assert not failures, "\n".join(failures)
 
 

@@ -7,14 +7,15 @@ _auditor = ContinuityAuditor()
 
 async def audit_continuity(*args, **kwargs):
     return await _auditor.audit(*args, **kwargs)
+
+
 from dobs.domain.entities.statement import Statement
 from dobs.domain.value_objects.account import Account
 from dobs.domain.value_objects.period import Period
 from dobs.domain.value_objects.summary import Summary
 
 
-def _stmt(start: str, end: str, beginning: float, ending: float,
-          last4: str = "4664") -> Statement:
+def _stmt(start: str, end: str, beginning: float, ending: float, last4: str = "4664") -> Statement:
     return Statement(
         oid=str(uuid.uuid4()),
         account=Account(

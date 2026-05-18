@@ -6,17 +6,16 @@ from dataclasses import dataclass
 
 from dobs.application.commands.extraction.extract_transactions_hybrid import _TransactionsResult
 from dobs.application.ports.llm_backend import LLMBackendPort
-from dobs.main.logging_setup import get_logger
-
-log = get_logger(__name__)
 from dobs.domain.prompts import REPAIR_SYSTEM
 from dobs.domain.services.prompt_sanitizer import PromptSanitizer
 from dobs.domain.services.reconcile import Reconciler
-from dobs.domain.value_objects.account import Account
 from dobs.domain.value_objects.llm_role import LLMRole
 from dobs.domain.value_objects.reconciliation import ReconciliationResult
 from dobs.domain.value_objects.summary import Summary
 from dobs.domain.value_objects.transaction import Transaction
+from dobs.main.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 def _total_error(recon: ReconciliationResult) -> float:
@@ -100,8 +99,13 @@ class RepairStatementHandler:
         recon: ReconciliationResult,
     ) -> _TransactionsResult:
         user = _build_repair_user(
-            segment_text, period_start, period_end, summary,
-            prev_transactions, recon, self._sanitizer,
+            segment_text,
+            period_start,
+            period_end,
+            summary,
+            prev_transactions,
+            recon,
+            self._sanitizer,
         )
         return await self._llm.call_structured(
             system=REPAIR_SYSTEM,
@@ -123,7 +127,6 @@ class RepairStatementHandler:
         recon = command.reconciliation
         best_error = _total_error(recon)
         best_transactions = current
-        best_recon = recon
 
         deadline = time.monotonic() + wall_clock_budget_s
 
@@ -153,7 +156,6 @@ class RepairStatementHandler:
 
             if new_error < best_error - 0.001:
                 best_transactions = current
-                best_recon = recon
                 best_error = new_error
             else:
                 break
