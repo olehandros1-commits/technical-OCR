@@ -70,7 +70,7 @@ function aggregate(stmts: StatementResult[]): Aggregated {
   for (const s of stmts) {
     const periodLabel = monthLabel(s.account.period.start);
     let inflow = 0, outflow = 0;
-    for (const t of s.transactions) {
+    for (const t of (s.transactions ?? [])) {
       totalTx += 1;
       if (t.deposit != null) inflow += t.deposit;
       if (t.withdrawal != null) outflow += t.withdrawal;
@@ -87,7 +87,7 @@ function aggregate(stmts: StatementResult[]): Aggregated {
       catMap[cat].count += 1;
       biggestPool.push({
         date: t.date,
-        description: t.description.slice(0, 60),
+        description: (t.description ?? "").slice(0, 60),
         side: t.deposit != null ? "deposit" : "withdrawal",
         amount,
       });

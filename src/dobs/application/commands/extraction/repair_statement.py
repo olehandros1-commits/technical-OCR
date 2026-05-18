@@ -118,8 +118,8 @@ class RepairStatementHandler:
         self,
         command: RepairStatementCommand,
     ) -> tuple[list[Transaction], list[ReconciliationResult]]:
-        max_attempts = 4
-        wall_clock_budget_s = 600.0
+        max_attempts = 2
+        wall_clock_budget_s = 180.0
         min_progress_ratio = 0.5
 
         history: list[ReconciliationResult] = [command.reconciliation]

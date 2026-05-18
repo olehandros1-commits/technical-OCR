@@ -13,6 +13,17 @@ from dobs.infrastructure.adapters.ocr.file_reader import (
 from dobs.infrastructure.adapters.ocr.tesseract_engine import TesseractOcrEngine
 from dobs.infrastructure.adapters.ocr.vision_engine import VisionOcrEngine
 
+_MIN_USABLE_CHARS = 500
+_MIN_PRINTABLE_RATIO = 0.75
+
+
+def _is_usable_ocr(text: str) -> bool:
+    stripped = text.strip()
+    if len(stripped) < _MIN_USABLE_CHARS:
+        return False
+    printable = sum(1 for c in stripped if c.isprintable() or c in "\n\t")
+    return printable / len(stripped) >= _MIN_PRINTABLE_RATIO
+
 
 class CompositeOcrEngine(OcrEnginePort):
     def __init__(
@@ -71,7 +82,33 @@ class CompositeOcrEngine(OcrEnginePort):
         if len(text.strip()) >= 200:
             return text
 
-        if self._vision is not None and self._vision._backend.supports_vision():
-            return await self._vision.extract_text(path, log_event=log_event)
+        if self._opendataloader is not None:
+            try:
+                return await self._opendataloader.extract_text(path, log_event=log_event)
+            except Exception:
+                pass
 
-        return await self._tesseract.extract_text(path, log_event=log_event)
+        tesseract_text: str | None = None
+        try:
+            tesseract_text = await self._tesseract.extract_text(path, log_event=log_event)
+        except Exception:
+            if self._vision is not None and self._vision._backend.supports_vision():
+                if log_event:
+                    log_event("ocr_vision_escalate", {"reason": "tesseract_failed"})
+                return await self._vision.extract_text(path, log_event=log_event)
+            raise
+
+        if _is_usable_ocr(tesseract_text):
+            return tesseract_text
+
+        if self._vision is not None and self._vision._backend.supports_vision():
+            if log_event:
+                log_event(
+                    "ocr_vision_escalate",
+                    {
+                        "reason": "tesseract_low_quality",
+                        "chars": len(tesseract_text.strip()),
+                    },
+                )
+            return await self._vision.extract_text(path, log_event=log_event)
+        return tesseract_text

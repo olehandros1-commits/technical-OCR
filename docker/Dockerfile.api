@@ -1,8 +1,21 @@
 FROM ghcr.io/astral-sh/uv:0.5-python3.12-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      tesseract-ocr poppler-utils \
+      tesseract-ocr poppler-utils default-jre-headless curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+ARG OPENDATALOADER_VERSION=2.4.3
+RUN mkdir -p /opt/opendataloader && \
+    curl -fsSL -o /opt/opendataloader/opendataloader-pdf-cli.jar \
+        "https://github.com/opendataloader-project/opendataloader-pdf/releases/download/v${OPENDATALOADER_VERSION}/opendataloader-pdf-cli-${OPENDATALOADER_VERSION}.zip" && \
+    cd /opt/opendataloader && \
+    apt-get update && apt-get install -y --no-install-recommends unzip && \
+    mv opendataloader-pdf-cli.jar opendataloader-pdf-cli.zip && \
+    unzip -p opendataloader-pdf-cli.zip "opendataloader-pdf-cli-${OPENDATALOADER_VERSION}.jar" > opendataloader-pdf-cli.jar && \
+    rm opendataloader-pdf-cli.zip && \
+    apt-get purge -y unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+
+ENV OPENDATALOADER_JAR=/opt/opendataloader/opendataloader-pdf-cli.jar
 
 WORKDIR /app
 

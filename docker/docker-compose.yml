@@ -18,6 +18,8 @@ services:
       - OLLAMA_MODEL_EXTRACT=${OLLAMA_MODEL_EXTRACT:-qwen2.5:14b}
       - OLLAMA_MODEL_REPAIR=${OLLAMA_MODEL_REPAIR:-qwen2.5:14b}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - EXTRACTOR_CACHE_URL=${EXTRACTOR_CACHE_URL:-redis://redis:6379/1}
+      - OPENDATALOADER_HYBRID_URL=${OPENDATALOADER_HYBRID_URL:-http://opendataloader-hybrid:5002}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -37,12 +39,27 @@ services:
       - EXTRACTOR_DEMO_REPLAY=${EXTRACTOR_DEMO_REPLAY:-0}
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - EXTRACTOR_CACHE_URL=${EXTRACTOR_CACHE_URL:-redis://redis:6379/1}
+      - OPENDATALOADER_HYBRID_URL=${OPENDATALOADER_HYBRID_URL:-http://opendataloader-hybrid:5002}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ../out:/app/out
     depends_on:
       - redis
+
+  opendataloader-hybrid:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.hybrid
+    ports:
+      - "5002:5002"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
   redis:
     image: redis:7-alpine

@@ -94,7 +94,7 @@ async def extract(
     tier: str = Form(""),
     ocr_mode: str = Form("auto"),
     enrich: bool = Form(False),
-    parallel: int = Form(2),
+    parallel: int = Form(4),
 ) -> ExtractResponse:
     pdf_path, txt_path = await _persist_uploads(pdf, txt)
     command = _build_command(
@@ -121,7 +121,7 @@ async def create_job(
     tier: str = Form(""),
     ocr_mode: str = Form("auto"),
     enrich: bool = Form(False),
-    parallel: int = Form(2),
+    parallel: int = Form(4),
 ) -> JobCreatedResponse:
     pdf_path, txt_path = await _persist_uploads(pdf, txt)
     job_id = str(uuid.uuid4())
@@ -212,7 +212,7 @@ async def extract_bulk(
     tier: str = Form(""),
     ocr_mode: str = Form("auto"),
     enrich: bool = Form(False),
-    parallel: int = Form(2),
+    parallel: int = Form(4),
 ) -> dict[str, object]:
     all_results: list[dict[str, object]] = []
     tenant = current_tenant()
@@ -245,7 +245,7 @@ async def export_xlsx(
     tier: str = Form(""),
     ocr_mode: str = Form("auto"),
     enrich: bool = Form(True),
-    parallel: int = Form(2),
+    parallel: int = Form(4),
 ) -> FileResponse:
     from dobs.presentation.export.excel import export_workbook
 

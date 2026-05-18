@@ -127,7 +127,7 @@ interface Series {
 function buildSeries(statement: StatementResult): Series {
   // Reconstruct the running balance by walking transactions in date
   // order. Bank's published "ending balance" is the anchor.
-  const txns: Transaction[] = [...statement.transactions]
+  const txns: Transaction[] = [...(statement.transactions ?? [])]
     .sort((a, b) => a.date.localeCompare(b.date));
   let running = statement.summary.beginning_balance;
   const points: SeriesPoint[] = [
@@ -152,8 +152,9 @@ function buildSeries(statement: StatementResult): Series {
   (statement._anomalies || []).forEach((a: Anomaly) => {
     if (a.transaction_index == null) return;
     const txIdx = a.transaction_index;
-    if (txIdx < 0 || txIdx >= statement.transactions.length) return;
-    const t = statement.transactions[txIdx];
+    const allTx = statement.transactions ?? [];
+    if (txIdx < 0 || txIdx >= allTx.length) return;
+    const t = allTx[txIdx];
     const ptIdx = points.findIndex((p) => p.date === t.date) + 1;
     if (ptIdx <= 0 || ptIdx >= points.length) return;
     markers.push({

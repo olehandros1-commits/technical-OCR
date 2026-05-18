@@ -27,7 +27,7 @@ export function ExtractionPage() {
   // ~$0.10-0.30 per statement on Sonnet). Flip on in the Toolbar when
   // categorisation + confidence are actually needed.
   const [enrich, setEnrich] = useState(false);
-  const [parallel, setParallel] = useState(2);
+  const [parallel, setParallel] = useState(4);
 
   const [events, setEvents] = useState<PipelineEvent[]>([]);
   const [results, setResults] = useState<StatementResult[]>([]);
@@ -70,13 +70,14 @@ export function ExtractionPage() {
     }
   }, [pdf, txt, backend, ocrMode, enrich, parallel]);
 
-  // HITL review queue: low confidence + warn/error anomalies.
   const reviewQueue = useMemo<ReviewItem[]>(() => {
     const out: ReviewItem[] = [];
-    results.forEach((r) => {
+    (results ?? []).forEach((r) => {
+      if (!r?.account?.period) return;
       const key = `${r.account.period.start}_${r.account.account_last4 ?? "none"}`;
-      r.transactions.forEach((t, tIdx) => {
-        if (t.confidence !== null && t.confidence < REVIEW_THRESHOLD) {
+      const transactions = r.transactions ?? [];
+      transactions.forEach((t, tIdx) => {
+        if (t.confidence !== null && t.confidence !== undefined && t.confidence < REVIEW_THRESHOLD) {
           out.push({
             statementKey: key,
             txIndex: tIdx,
@@ -89,9 +90,9 @@ export function ExtractionPage() {
           });
         }
       });
-      r._anomalies.forEach((an) => {
+      (r._anomalies ?? []).forEach((an) => {
         if ((an.severity === "warn" || an.severity === "error") && an.transaction_index !== null) {
-          const t = r.transactions[an.transaction_index];
+          const t = transactions[an.transaction_index];
           if (!t) return;
           out.push({
             statementKey: key,
@@ -109,7 +110,7 @@ export function ExtractionPage() {
     return out;
   }, [results]);
 
-  const reconciledCount = results.filter((r) => r._reconciliation?.ok).length;
+  const reconciledCount = (results ?? []).filter((r) => r?._reconciliation?.ok).length;
 
   return (
     <div className="app">
@@ -167,7 +168,7 @@ export function ExtractionPage() {
                   {reconciledCount}/{results.length} reconciled
                 </strong>,{" "}
                 <strong>
-                  {results.reduce((n, r) => n + r.transactions.length, 0)}
+                  {results.reduce((n, r) => n + (r.transactions?.length ?? 0), 0)}
                 </strong>{" "}
                 transactions
               </span>

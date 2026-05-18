@@ -25,6 +25,7 @@ out/ixonia_cli.json
 out/ixonia_cli.xlsx
 out/ixonia_demo.xlsx
 out/uploads/
+out/odl_smoke/
 
 # --- Allow listed replay artefacts (small JSON, needed for DEMO_REPLAY) -----
 !out/ixonia_extraction.json
@@ -39,6 +40,7 @@ frontend/.vite/
 # --- Binary blobs (download separately, do not commit) ----------------
 *.pdf
 *.exe
+*.jar
 
 # --- IDE / OS --------------------------------------------------------
 .DS_Store

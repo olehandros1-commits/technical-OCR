@@ -14,7 +14,9 @@ interface Props {
 }
 
 export function StatementCard({ statement, onTxSelect }: Props) {
-  const { account, summary, _reconciliation, _anomalies, transactions } = statement;
+  const { account, summary, _reconciliation } = statement;
+  const _anomalies = statement._anomalies ?? [];
+  const transactions = statement.transactions ?? [];
   const [selectedTxIndex, setSelectedTxIndex] = useState<number | null>(null);
   const [showAnomalies, setShowAnomalies] = useState(false);
   const [explanations, setExplanations] = useState<Record<number, ExplainResult | "loading" | "error">>({});
@@ -81,11 +83,11 @@ export function StatementCard({ statement, onTxSelect }: Props) {
                 sub={`# ${summary.withdrawals_count ?? "?"}`} />
       </div>
 
-      {!ok && _reconciliation?.issues.length ? (
+      {!ok && (_reconciliation?.issues?.length ?? 0) > 0 ? (
         <div className="issues">
           <strong>Reconciliation issues:</strong>
           <ul>
-            {_reconciliation.issues.map((i, idx) => <li key={idx}>{i}</li>)}
+            {(_reconciliation?.issues ?? []).map((i, idx) => <li key={idx}>{i}</li>)}
           </ul>
         </div>
       ) : null}
@@ -224,7 +226,7 @@ function downloadJson(s: StatementResult) {
 function downloadCsv(s: StatementResult) {
   const cols = ["date", "description", "deposit", "withdrawal", "category", "vendor", "confidence"];
   const lines = [cols.join(",")];
-  for (const t of s.transactions) {
+  for (const t of (s.transactions ?? [])) {
     lines.push(cols.map((c) => csvCell((t as never)[c])).join(","));
   }
   const blob = new Blob([lines.join("\n")], { type: "text/csv" });

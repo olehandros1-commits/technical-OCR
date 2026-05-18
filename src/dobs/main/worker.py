@@ -12,12 +12,16 @@ from dobs.infrastructure.adapters.event_bus.context_event_bus import bind_event_
 from dobs.infrastructure.adapters.event_bus.store_event_bus import StoreEventBus
 from dobs.infrastructure.adapters.jobs.redis_job_store import RedisJobStore
 from dobs.infrastructure.adapters.replay.replaying_extract_handler import ReplayingExtractHandler
+from dobs.main.config.settings import get_settings
 from dobs.main.di import build_providers
+from dobs.main.logging_setup import configure_logging
 
 log = logging.getLogger(__name__)
 
 
 async def startup(ctx: dict[str, Any]) -> None:
+    settings = get_settings()
+    configure_logging(level=settings.log_level, json_output=settings.log_json)
     ctx["container"] = make_async_container(*build_providers())
     ctx["redis_url"] = os.getenv("REDIS_URL", "redis://redis:6379/0")
     log.info("worker container built")
@@ -67,6 +71,10 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _build_redis_settings()
+    job_timeout = 1800
+    max_tries = 1
+    keep_result = 3600
+    health_check_interval = 60
 
 
 def main() -> None:

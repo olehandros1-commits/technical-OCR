@@ -13,24 +13,26 @@ export function TransactionsTable({ transactions, selectedIndex, onSelect }: Pro
   const [minConf, setMinConf] = useState(0);
   const [search, setSearch] = useState("");
 
+  const safeTx = transactions ?? [];
+
   const categories = useMemo(
-    () => Array.from(new Set(transactions.map((t) => t.category).filter(Boolean))) as TxCategory[],
-    [transactions],
+    () => Array.from(new Set(safeTx.map((t) => t.category).filter(Boolean))) as TxCategory[],
+    [safeTx],
   );
 
   const filtered = useMemo(() => {
-    return transactions
+    return safeTx
       .map((t, originalIndex) => ({ t, originalIndex }))
       .filter(({ t }) => {
         if (side === "deposit" && t.deposit === null) return false;
         if (side === "withdrawal" && t.withdrawal === null) return false;
         if (category !== "all" && t.category !== category) return false;
         if (minConf > 0 && (t.confidence ?? 1) < minConf) return false;
-        if (search && !t.description.toLowerCase().includes(search.toLowerCase()))
+        if (search && !(t.description ?? "").toLowerCase().includes(search.toLowerCase()))
           return false;
         return true;
       });
-  }, [transactions, side, category, minConf, search]);
+  }, [safeTx, side, category, minConf, search]);
 
   return (
     <div className="tx-table-wrapper">
@@ -70,7 +72,7 @@ export function TransactionsTable({ transactions, selectedIndex, onSelect }: Pro
           onChange={(e) => setSearch(e.target.value)}
         />
         <span className="tx-count">
-          {filtered.length} / {transactions.length}
+          {filtered.length} / {safeTx.length}
         </span>
       </div>
       <div className="tx-table-scroll">
