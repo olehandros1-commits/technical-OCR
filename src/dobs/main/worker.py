@@ -10,7 +10,10 @@ from dobs.main.config.settings import AppSettings
 
 
 async def run_extraction(ctx, job_id: str, command_payload: dict) -> dict:
-    settings = AppSettings(backend=command_payload.get("backend") or None)
+    backend = command_payload.get("backend")
+    if backend:
+        os.environ["EXTRACTOR_BACKEND"] = backend
+    settings = AppSettings()
     container = build_container(settings)
     store = RedisJobStore(url=os.getenv("REDIS_URL", "redis://redis:6379/0"))
 
@@ -39,16 +42,17 @@ async def shutdown(ctx) -> None:
     pass
 
 
+def _build_redis_settings():
+    from arq.connections import RedisSettings
+
+    return RedisSettings.from_dsn(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+
+
 class WorkerSettings:
     functions = [run_extraction]
     on_startup = startup
     on_shutdown = shutdown
-
-    @property
-    def redis_settings(self):
-        from arq.connections import RedisSettings
-
-        return RedisSettings.from_dsn(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+    redis_settings = _build_redis_settings()
 
 
 def main() -> None:

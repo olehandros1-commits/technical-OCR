@@ -25,6 +25,7 @@ out/smoke_*.json
 out/ixonia_cli.json
 out/ixonia_cli.xlsx
 out/ixonia_demo.xlsx
+out/uploads/
 
 # --- Task assets we DO want in the repo so reviewers can run -------
 !Binder2_Redacted.pdf
@@ -36,10 +37,6 @@ out/ixonia_demo.xlsx
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
-
-# --- gRPC generated stubs --------------------------------------------
-src/extractor/grpc/extractor_pb2.py
-src/extractor/grpc/extractor_pb2_grpc.py
 
 # --- Big binaries ----------------------------------------------------
 OllamaSetup.exe

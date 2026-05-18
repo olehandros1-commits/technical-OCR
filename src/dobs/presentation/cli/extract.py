@@ -73,7 +73,7 @@ async def _run(
 ) -> None:
     if backend:
         os.environ["EXTRACTOR_BACKEND"] = backend
-    settings = AppSettings(backend=backend)
+    settings = AppSettings()
     container = build_container(settings)
     handler = container.extract_handler()
 

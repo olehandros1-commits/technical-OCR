@@ -43,14 +43,26 @@ from dobs.main.config.settings import AppSettings
 
 
 class _ReplayingExtractHandler:
-    def __init__(self, /, *, inner, replay_player: DemoReplayPlayer) -> None:
+    def __init__(self, /, *, inner, replay_player: DemoReplayPlayer, event_bus=None) -> None:
         self._inner = inner
         self._replay = replay_player
+        self._event_bus = event_bus
 
     async def __call__(self, command):
         if is_replay_enabled():
+            bus = self._event_bus
+            if bus is None:
+                log_event = getattr(command, "log_event", None)
+            else:
+                def log_event(name: str, data: dict) -> None:
+                    import asyncio as _asyncio
+                    try:
+                        loop = _asyncio.get_running_loop()
+                        loop.create_task(bus.publish(name, data))
+                    except RuntimeError:
+                        pass
             return await self._replay.replay(
-                log_event=getattr(command, "log_event", None),
+                log_event=log_event,
                 tier=getattr(command, "tier", None),
             )
         return await self._inner(command)
@@ -295,6 +307,7 @@ class Container:
             self._extract_handler = _ReplayingExtractHandler(
                 inner=real,
                 replay_player=DemoReplayPlayer(),
+                event_bus=self.event_bus(),
             )
         return self._extract_handler
 

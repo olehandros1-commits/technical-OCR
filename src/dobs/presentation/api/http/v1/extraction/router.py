@@ -4,7 +4,6 @@ import asyncio
 import dataclasses
 import json
 import os
-import tempfile
 import uuid
 from pathlib import Path
 
@@ -33,8 +32,15 @@ def get_extract_handler():
     raise NotImplementedError("Composition root must wire ExtractStatementHandler via dependency_overrides")
 
 
+def _upload_root() -> Path:
+    root = Path(os.getenv("DOBS_UPLOAD_ROOT", "out/uploads"))
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 def _persist_uploads(pdf: UploadFile, txt: UploadFile | None) -> tuple[Path, Path | None]:
-    tmp = Path(tempfile.mkdtemp(prefix="dobs_"))
+    tmp = _upload_root() / uuid.uuid4().hex
+    tmp.mkdir(parents=True, exist_ok=True)
     pdf_path = tmp / (pdf.filename or "upload.pdf")
     pdf_path.write_bytes(pdf.file.read())
     txt_path: Path | None = None
@@ -128,7 +134,7 @@ async def create_job(
             from dobs.main.composition_root import build_container
             from dobs.main.config.settings import AppSettings
 
-            container = build_container(AppSettings(backend=backend or None))
+            container = build_container(AppSettings())
             container._event_bus = event_bus  # type: ignore[attr-defined]
             local_handler = container.extract_handler()
             try:
@@ -177,7 +183,8 @@ async def extract_bulk(
     all_results: list[dict] = []
     tenant = current_tenant()
     for upload in files:
-        tmp = Path(tempfile.mkdtemp(prefix="dobs_bulk_"))
+        tmp = _upload_root() / uuid.uuid4().hex
+        tmp.mkdir(parents=True, exist_ok=True)
         pdf_path = tmp / (upload.filename or "upload.pdf")
         pdf_path.write_bytes(upload.file.read())
         command = ExtractStatementCommand(
@@ -218,7 +225,8 @@ async def export_xlsx(
         tenant=current_tenant(),
     )
     results = await handler(command)
-    out_dir = Path(tempfile.mkdtemp(prefix="dobs_xlsx_"))
+    out_dir = _upload_root() / "xlsx" / uuid.uuid4().hex
+    out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / f"{pdf.filename or 'statement'}.xlsx"
     export_workbook(_serialize_results(results), out_file)
     return FileResponse(
