@@ -36,7 +36,7 @@ export function ExtractionPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const run = useCallback(async () => {
-    if (!pdf) return;
+    if (!pdf && !txt) return;
     setEvents([]);
     setResults([]);
     setTelemetry(null);
@@ -44,7 +44,8 @@ export function ExtractionPage() {
     setErrorMsg(null);
     try {
       const jobId = await createJob({
-        pdf, txt: txt ?? undefined, backend, tier, ocrMode, enrich, parallel,
+        pdf: pdf ?? undefined, txt: txt ?? undefined,
+        backend, tier, ocrMode, enrich, parallel,
       });
       streamJobEvents(
         jobId,
@@ -141,7 +142,7 @@ export function ExtractionPage() {
         pdf={pdf} setPdf={setPdf}
         txt={txt} setTxt={setTxt}
         onRun={run}
-        canRun={!!pdf && !running}
+        canRun={(!!pdf || !!txt) && !running}
         running={running}
       />
 

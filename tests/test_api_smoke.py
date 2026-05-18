@@ -25,6 +25,27 @@ def test_tiers_catalog(client):
     assert set(names) == {"premium", "balanced", "cheap", "local"}
 
 
+def test_extract_requires_pdf_or_txt(client):
+    r = client.post("/api/v1/extraction/extract", data={"tier": "local"})
+    assert r.status_code == 422
+    assert "pdf" in r.text.lower() or "txt" in r.text.lower()
+
+
+def test_extract_accepts_txt_only(client):
+    txt_path = Path(__file__).resolve().parent.parent / "ixonia_ocr.txt"
+    if not txt_path.exists():
+        pytest.skip("ixonia_ocr.txt not present in repo root")
+    with txt_path.open("rb") as f:
+        r = client.post(
+            "/api/v1/extraction/extract",
+            files={"txt": (txt_path.name, f, "text/plain")},
+            data={"tier": "local", "enrich": "false", "parallel": "1"},
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["results"]) == 10
+
+
 def test_extract_replay_returns_full_payload(client):
     pdf_path = Path(__file__).resolve().parent.parent / "Binder2_Redacted.pdf"
     if not pdf_path.exists():

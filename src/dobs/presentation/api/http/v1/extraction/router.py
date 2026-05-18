@@ -38,11 +38,18 @@ def _upload_root() -> Path:
     return root
 
 
-def _persist_uploads(pdf: UploadFile, txt: UploadFile | None) -> tuple[Path, Path | None]:
+def _persist_uploads(
+    pdf: UploadFile | None,
+    txt: UploadFile | None,
+) -> tuple[Path | None, Path | None]:
+    if pdf is None and txt is None:
+        raise HTTPException(status_code=422, detail="Provide at least one of: pdf, txt")
     tmp = _upload_root() / uuid.uuid4().hex
     tmp.mkdir(parents=True, exist_ok=True)
-    pdf_path = tmp / (pdf.filename or "upload.pdf")
-    pdf_path.write_bytes(pdf.file.read())
+    pdf_path: Path | None = None
+    if pdf is not None:
+        pdf_path = tmp / (pdf.filename or "upload.pdf")
+        pdf_path.write_bytes(pdf.file.read())
     txt_path: Path | None = None
     if txt is not None:
         txt_path = tmp / (txt.filename or "upload.txt")
@@ -71,7 +78,7 @@ def _get_store():
 
 @router.post("/extract", status_code=status.HTTP_200_OK, response_model=ExtractResponse)
 async def extract(
-    pdf: UploadFile = File(...),
+    pdf: UploadFile | None = File(None),
     txt: UploadFile | None = File(None),
     backend: str = Form(""),
     tier: str = Form(""),
@@ -82,7 +89,7 @@ async def extract(
 ) -> ExtractResponse:
     pdf_path, txt_path = _persist_uploads(pdf, txt)
     command = ExtractStatementCommand(
-        pdf_path=str(pdf_path),
+        pdf_path=str(pdf_path) if pdf_path else None,
         txt_path=str(txt_path) if txt_path else None,
         tier=tier or None,
         ocr_mode=ocr_mode,
@@ -96,7 +103,7 @@ async def extract(
 
 @router.post("/jobs", status_code=status.HTTP_202_ACCEPTED, response_model=JobCreatedResponse)
 async def create_job(
-    pdf: UploadFile = File(...),
+    pdf: UploadFile | None = File(None),
     txt: UploadFile | None = File(None),
     backend: str = Form(""),
     tier: str = Form(""),
@@ -111,7 +118,7 @@ async def create_job(
     store = _get_store()
 
     command = ExtractStatementCommand(
-        pdf_path=str(pdf_path),
+        pdf_path=str(pdf_path) if pdf_path else None,
         txt_path=str(txt_path) if txt_path else None,
         tier=tier or None,
         ocr_mode=ocr_mode,
@@ -203,7 +210,7 @@ async def extract_bulk(
 
 @router.post("/export/xlsx", status_code=status.HTTP_200_OK)
 async def export_xlsx(
-    pdf: UploadFile = File(...),
+    pdf: UploadFile | None = File(None),
     txt: UploadFile | None = File(None),
     backend: str = Form(""),
     tier: str = Form(""),
@@ -216,7 +223,7 @@ async def export_xlsx(
 
     pdf_path, txt_path = _persist_uploads(pdf, txt)
     command = ExtractStatementCommand(
-        pdf_path=str(pdf_path),
+        pdf_path=str(pdf_path) if pdf_path else None,
         txt_path=str(txt_path) if txt_path else None,
         tier=tier or None,
         ocr_mode=ocr_mode,
@@ -227,7 +234,8 @@ async def export_xlsx(
     results = await handler(command)
     out_dir = _upload_root() / "xlsx" / uuid.uuid4().hex
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / f"{pdf.filename or 'statement'}.xlsx"
+    base_name = (pdf.filename if pdf else None) or (txt.filename if txt else None) or "statement"
+    out_file = out_dir / f"{base_name}.xlsx"
     export_workbook(_serialize_results(results), out_file)
     return FileResponse(
         str(out_file),

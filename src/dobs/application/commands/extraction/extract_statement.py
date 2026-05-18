@@ -54,7 +54,7 @@ def _cache_key(seg: StatementSegment, backend_name: str, tenant: str) -> str:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class ExtractStatementCommand:
-    pdf_path: str
+    pdf_path: str | None = None
     txt_path: str | None = None
     tier: str | None = None
     ocr_mode: str = "auto"
@@ -240,12 +240,22 @@ class ExtractStatementHandler:
             "ocr_mode": command.ocr_mode,
         })
 
-        text = await self._ocr.extract_text(
-            command.pdf_path,
-            log_event=lambda name, data: asyncio.ensure_future(
-                self._event_bus.emit(name, data)
-            ),
-        )
+        if command.txt_path:
+            text = await asyncio.to_thread(
+                Path(command.txt_path).read_text, encoding="utf-8", errors="ignore"
+            )
+            await self._event_bus.emit("ocr_cache_hit", {
+                "method": "txt-passthrough", "chars": len(text),
+            })
+        elif command.pdf_path:
+            text = await self._ocr.extract_text(
+                command.pdf_path,
+                log_event=lambda name, data: asyncio.ensure_future(
+                    self._event_bus.emit(name, data)
+                ),
+            )
+        else:
+            raise ValueError("ExtractStatementCommand requires pdf_path or txt_path")
 
         await self._event_bus.emit("ingest_done", {"chars": len(text)})
 
@@ -311,7 +321,11 @@ class ExtractStatementHandler:
                 oid=uuid4(),
                 tier=command.tier,
                 backend=getattr(self._llm, "name", None),
-                source_filename=Path(command.pdf_path).name if command.pdf_path else None,
+                source_filename=(
+                    Path(command.pdf_path).name if command.pdf_path
+                    else Path(command.txt_path).name if command.txt_path
+                    else None
+                ),
                 statement_count=len(statements),
                 reconciled_count=sum(
                     1 for s in statements if s.reconciliation and s.reconciliation.ok

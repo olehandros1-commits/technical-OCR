@@ -2,7 +2,7 @@ export const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 export const V1 = `${BASE}/api/v1`;
 
 export interface ExtractOptions {
-  pdf: File;
+  pdf?: File | null;
   txt?: File | null;
   backend: import("@/entities/tier").Backend | "";
   tier?: import("@/entities/tier").Tier | "";
@@ -13,7 +13,7 @@ export interface ExtractOptions {
 
 export function _formData(opts: ExtractOptions): FormData {
   const fd = new FormData();
-  fd.append("pdf", opts.pdf);
+  if (opts.pdf) fd.append("pdf", opts.pdf);
   if (opts.txt) fd.append("txt", opts.txt);
   if (opts.tier) {
     fd.append("tier", opts.tier);
