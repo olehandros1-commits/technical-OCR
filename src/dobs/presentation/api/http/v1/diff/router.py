@@ -1,6 +1,9 @@
+import dataclasses
+
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
+from dobs.application.queries.diff_extractions import DiffExtractionsQuery
 from dobs.presentation.api.http.middleware.api_key import api_key_dependency
 
 router = APIRouter(
@@ -24,5 +27,5 @@ async def diff_extractions(
     body: DiffRequest,
     handler=Depends(get_diff_handler),
 ) -> dict:
-    result = await handler(result_a=body.result_a, result_b=body.result_b)
-    return result
+    result = await handler(DiffExtractionsQuery(result_a=body.result_a, result_b=body.result_b))
+    return dataclasses.asdict(result)

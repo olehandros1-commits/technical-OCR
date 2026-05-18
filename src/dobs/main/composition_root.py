@@ -35,7 +35,25 @@ from dobs.infrastructure.adapters.telemetry.call_stats_collector import CallStat
 from dobs.infrastructure.adapters.vendor.clearbit_lookup import ClearbitVendorLookup
 from dobs.infrastructure.adapters.vendor.composite_lookup import CompositeVendorLookup
 from dobs.infrastructure.adapters.vendor.seed_lookup import SeedVendorLookup
+from dobs.infrastructure.adapters.replay.demo_replay import (
+    DemoReplayPlayer,
+    is_replay_enabled,
+)
 from dobs.main.config.settings import AppSettings
+
+
+class _ReplayingExtractHandler:
+    def __init__(self, /, *, inner, replay_player: DemoReplayPlayer) -> None:
+        self._inner = inner
+        self._replay = replay_player
+
+    async def __call__(self, command):
+        if is_replay_enabled():
+            return await self._replay.replay(
+                log_event=getattr(command, "log_event", None),
+                tier=getattr(command, "tier", None),
+            )
+        return await self._inner(command)
 
 
 class _EventBusEmitAdapter:
@@ -165,6 +183,7 @@ class Container:
         self._vendor: _VendorLookupWithEnrich | None = None
         self._event_bus: _EventBusEmitAdapter | None = None
         self._cache_placeholder: _CachePlaceholder | None = None
+        self._extract_handler: _ReplayingExtractHandler | ExtractStatementHandler | None = None
 
     def telemetry(self) -> CallStatsCollector:
         if self._telemetry is None:
@@ -257,21 +276,27 @@ class Container:
     def enrich_handler(self) -> EnrichTransactionsHandler:
         return EnrichTransactionsHandler(llm=self.llm())
 
-    def extract_handler(self) -> ExtractStatementHandler:
-        return ExtractStatementHandler(
-            ocr=self.ocr(),
-            cache=self._cache_proxy(),
-            audit=self.audit(),
-            lessons=self.lessons(),
-            event_bus=self.event_bus(),
-            telemetry=self.telemetry(),
-            summary=self.summary_handler(),
-            transactions=self.transactions_handler(),
-            repair=self.repair_handler(),
-            enrich_cmd=self.enrich_handler(),
-            vendor=self.vendor(),
-            llm=self.llm(),
-        )
+    def extract_handler(self):
+        if self._extract_handler is None:
+            real = ExtractStatementHandler(
+                ocr=self.ocr(),
+                cache=self._cache_proxy(),
+                audit=self.audit(),
+                lessons=self.lessons(),
+                event_bus=self.event_bus(),
+                telemetry=self.telemetry(),
+                summary=self.summary_handler(),
+                transactions=self.transactions_handler(),
+                repair=self.repair_handler(),
+                enrich_cmd=self.enrich_handler(),
+                vendor=self.vendor(),
+                llm=self.llm(),
+            )
+            self._extract_handler = _ReplayingExtractHandler(
+                inner=real,
+                replay_player=DemoReplayPlayer(),
+            )
+        return self._extract_handler
 
     def prevalidate_handler(self) -> PrevalidateDocumentHandler:
         return PrevalidateDocumentHandler(llm=self.llm())

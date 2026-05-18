@@ -1,5 +1,9 @@
+import dataclasses
+
 from fastapi import APIRouter, Depends
 
+from dobs.application.queries.get_telemetry import GetTelemetryQuery
+from dobs.application.queries.get_tiers import GetTiersQuery
 from dobs.presentation.api.http.middleware.api_key import api_key_dependency
 
 router = APIRouter(
@@ -19,11 +23,11 @@ def get_tiers_handler():
 
 @router.get("")
 async def get_telemetry(handler=Depends(get_telemetry_handler)) -> dict:
-    result = await handler()
+    result = await handler(GetTelemetryQuery())
     return result
 
 
 @router.get("/tiers")
 async def get_tiers(handler=Depends(get_tiers_handler)) -> dict:
-    result = await handler()
-    return {"tiers": result}
+    result = await handler(GetTiersQuery())
+    return {"tiers": [dataclasses.asdict(t) for t in result]}

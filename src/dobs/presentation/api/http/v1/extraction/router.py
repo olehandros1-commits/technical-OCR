@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import tempfile
 import uuid
@@ -9,7 +10,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 
+from dobs.application.commands.extraction.extract_statement import ExtractStatementCommand
 from dobs.presentation.api.http.middleware.api_key import api_key_dependency
+from dobs.presentation.api.http.middleware.tenant import current_tenant
 from dobs.presentation.api.http.v1.extraction.job_registry import JobEntry, get_job_registry
 from dobs.presentation.api.http.v1.extraction.schemas import (
     ExtractResponse,
@@ -39,6 +42,14 @@ def _persist_uploads(pdf: UploadFile, txt: UploadFile | None) -> tuple[Path, Pat
     return pdf_path, txt_path
 
 
+def _serialize_results(results: list) -> list[dict]:
+    if not results:
+        return []
+    if isinstance(results[0], dict):
+        return results
+    return [dataclasses.asdict(r) for r in results]
+
+
 @router.post("/extract", status_code=status.HTTP_200_OK, response_model=ExtractResponse)
 async def extract(
     pdf: UploadFile = File(...),
@@ -51,16 +62,17 @@ async def extract(
     handler=Depends(get_extract_handler),
 ) -> ExtractResponse:
     pdf_path, txt_path = _persist_uploads(pdf, txt)
-    results = await handler(
-        pdf_path=pdf_path,
-        txt_path=txt_path,
-        backend=backend or None,
+    command = ExtractStatementCommand(
+        pdf_path=str(pdf_path),
+        txt_path=str(txt_path) if txt_path else None,
         tier=tier or None,
         ocr_mode=ocr_mode,
         enrich=enrich,
         parallel=parallel,
+        tenant=current_tenant(),
     )
-    return ExtractResponse(results=results, telemetry={})
+    results = await handler(command)
+    return ExtractResponse(results=_serialize_results(results), telemetry={})
 
 
 @router.post("/jobs", status_code=status.HTTP_202_ACCEPTED, response_model=JobCreatedResponse)
@@ -91,20 +103,21 @@ async def create_job(
             return await self._queue.get()
 
     event_bus = _SimpleEventBus()
+    tenant = current_tenant()
 
     async def _run() -> None:
         try:
-            results = await handler(
-                pdf_path=pdf_path,
-                txt_path=txt_path,
-                backend=backend or None,
+            command = ExtractStatementCommand(
+                pdf_path=str(pdf_path),
+                txt_path=str(txt_path) if txt_path else None,
                 tier=tier or None,
                 ocr_mode=ocr_mode,
                 enrich=enrich,
                 parallel=parallel,
-                event_bus=event_bus,
+                tenant=tenant,
             )
-            await registry.mark_done(job_id, result=results)
+            results = await handler(command)
+            await registry.mark_done(job_id, result=_serialize_results(results))
         except Exception as exc:
             await registry.mark_done(job_id, error=str(exc))
         finally:
@@ -151,21 +164,23 @@ async def extract_bulk(
     parallel: int = Form(2),
     handler=Depends(get_extract_handler),
 ) -> dict:
-    all_results = []
+    all_results: list[dict] = []
+    tenant = current_tenant()
     for upload in files:
         tmp = Path(tempfile.mkdtemp(prefix="dobs_bulk_"))
         pdf_path = tmp / (upload.filename or "upload.pdf")
         pdf_path.write_bytes(upload.file.read())
-        results = await handler(
-            pdf_path=pdf_path,
+        command = ExtractStatementCommand(
+            pdf_path=str(pdf_path),
             txt_path=None,
-            backend=backend or None,
             tier=tier or None,
             ocr_mode=ocr_mode,
             enrich=enrich,
             parallel=parallel,
+            tenant=tenant,
         )
-        all_results.extend(results)
+        results = await handler(command)
+        all_results.extend(_serialize_results(results))
     return {"results": all_results, "telemetry": {}}
 
 
@@ -183,18 +198,19 @@ async def export_xlsx(
     from dobs.presentation.export.excel import export_workbook
 
     pdf_path, txt_path = _persist_uploads(pdf, txt)
-    results = await handler(
-        pdf_path=pdf_path,
-        txt_path=txt_path,
-        backend=backend or None,
+    command = ExtractStatementCommand(
+        pdf_path=str(pdf_path),
+        txt_path=str(txt_path) if txt_path else None,
         tier=tier or None,
         ocr_mode=ocr_mode,
         enrich=enrich,
         parallel=parallel,
+        tenant=current_tenant(),
     )
+    results = await handler(command)
     out_dir = Path(tempfile.mkdtemp(prefix="dobs_xlsx_"))
     out_file = out_dir / f"{pdf.filename or 'statement'}.xlsx"
-    export_workbook(results, out_file)
+    export_workbook(_serialize_results(results), out_file)
     return FileResponse(
         str(out_file),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
