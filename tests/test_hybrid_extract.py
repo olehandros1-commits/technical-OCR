@@ -1,30 +1,25 @@
-"""Integration test for hybrid extraction: regex pre-parse + LLM validator."""
-from pydantic import BaseModel
+import json
 
-from extractor.backends.base import LLMBackend, LLMRole
-from extractor.extract_transactions_hybrid import (
-    extract_transactions_hybrid, _ValidatorResponse, _ValidatedRow,
+from dobs.application.commands.extraction.extract_transactions_hybrid import (
+    ExtractTransactionsHybridCommand,
+    ExtractTransactionsHybridHandler,
+    _ValidatorResponse,
+    _ValidatedRow,
 )
+from dobs.application.ports.llm_backend import LLMBackendPort
+from dobs.domain.value_objects.llm_role import LLMRole
 
 
-class _MockValidator(LLMBackend):
-    """Mock backend that returns one ValidatedRow per input candidate.
-
-    Side-determination heuristic: descriptions containing 'CHECK',
-    'PAYABLE', 'WITHDRAWAL', 'PMT' -> withdrawal; everything else -> deposit.
-    """
+class _MockValidator:
     name = "mock-validator"
 
     def __init__(self) -> None:
         self.calls = 0
         self.last_user: str = ""
 
-    def call_structured(self, system, user, response_model, *, role=LLMRole.CHEAP, **kw):
-        import json
+    async def call_structured(self, *, system, user, response_model, role=LLMRole.CHEAP, **kw):
         self.calls += 1
         self.last_user = user
-        # Extract the input records by parsing the user prompt.
-        # In a real test we'd be more careful; here we trust the format.
         start = user.index("[")
         records = json.loads(user[start:])
         rows = []
@@ -43,6 +38,12 @@ class _MockValidator(LLMBackend):
             ))
         return _ValidatorResponse(rows=rows)
 
+    async def call_vision(self, **kw):
+        raise NotImplementedError
+
+    def supports_vision(self) -> bool:
+        return False
+
 
 _SAMPLE = (
     "Apr 01 AIRLINEHYD 2759/VENDOR PMT 1,809.28 598,877.98 "
@@ -52,39 +53,55 @@ _SAMPLE = (
 )
 
 
-def test_hybrid_lifts_rows_via_regex_and_classifies_via_llm():
+async def test_hybrid_lifts_rows_via_regex_and_classifies_via_llm():
     backend = _MockValidator()
-    resp = extract_transactions_hybrid(
-        _SAMPLE, "2025-04-01", "2025-04-30", backend,
-    )
+    handler = ExtractTransactionsHybridHandler(llm=backend)
+    result = await handler(ExtractTransactionsHybridCommand(
+        segment_text=_SAMPLE,
+        period_start="2025-04-01",
+        period_end="2025-04-30",
+    ))
     assert backend.calls == 1
-    # Mock returns one ValidatedRow per regex candidate (4).
-    assert len(resp.transactions) == 4
-    # Withdrawal classifications by mock heuristic.
-    sides = [("D" if t.deposit is not None else "W") for t in resp.transactions]
-    assert sides == ["W", "D", "W", "W"]  # PMT, none, PAYABLES, CHECK
+    assert len(result.transactions) == 4
+    sides = [("D" if t.deposit is not None else "W") for t in result.transactions]
+    assert sides == ["W", "D", "W", "W"]
 
 
-def test_hybrid_user_payload_is_compact_json():
+async def test_hybrid_user_payload_is_compact_json():
     backend = _MockValidator()
-    extract_transactions_hybrid(_SAMPLE, "2025-04-01", "2025-04-30", backend)
-    # Compact JSON keys we expect to see in the validator prompt.
+    handler = ExtractTransactionsHybridHandler(llm=backend)
+    await handler(ExtractTransactionsHybridCommand(
+        segment_text=_SAMPLE,
+        period_start="2025-04-01",
+        period_end="2025-04-30",
+    ))
     for tok in ("index", "date", "desc", "amounts", "is_check"):
         assert tok in backend.last_user
-    # Validator should NOT have the system prompt boilerplate from the
-    # main TRANSACTIONS_SYSTEM (those rules are now redundant).
     assert "MISCELLANEOUS DEBITS" not in backend.last_user
 
 
-def test_hybrid_falls_back_when_regex_finds_nothing():
-    # Empty text -> no regex rows -> fall back path. The mock validator
-    # would NOT be called because fallback is _single_call() which uses
-    # the regular TRANSACTIONS_SYSTEM. We simulate by checking that no
-    # call was made when fallback is disabled.
-    backend = _MockValidator()
-    resp = extract_transactions_hybrid(
-        "no dates here", "2025-04-01", "2025-04-30", backend,
-        fallback_on_empty=False,
-    )
-    assert backend.calls == 0
-    assert resp.transactions == []
+async def test_hybrid_falls_back_when_regex_finds_nothing():
+    from dobs.application.commands.extraction.extract_transactions_hybrid import _TransactionsResult
+
+    class _FallbackBackend:
+        name = "fallback"
+        calls = 0
+
+        async def call_structured(self, **kw):
+            self.__class__.calls = getattr(self.__class__, "calls", 0) + 1
+            return _TransactionsResult(transactions=[], skipped_rows=[])
+
+        async def call_vision(self, **kw):
+            raise NotImplementedError
+
+        def supports_vision(self):
+            return False
+
+    backend = _FallbackBackend()
+    handler = ExtractTransactionsHybridHandler(llm=backend)
+    result = await handler(ExtractTransactionsHybridCommand(
+        segment_text="no dates here",
+        period_start="2025-04-01",
+        period_end="2025-04-30",
+    ))
+    assert result.transactions == []

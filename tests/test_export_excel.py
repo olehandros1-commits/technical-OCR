@@ -1,7 +1,6 @@
-"""Smoke test: Excel export produces a valid multi-sheet workbook with formulas."""
 from pathlib import Path
 
-from extractor.export_excel import export_workbook
+from dobs.presentation.export.excel import export_workbook
 
 
 def _result(period_start: str, period_end: str, beginning: float, ending: float,

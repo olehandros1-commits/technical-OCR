@@ -1,7 +1,5 @@
-"""Tests for the deterministic regex row pre-parser."""
-from extractor.parse_rows import (
-    parse_rows, filter_transaction_rows, RawRow,
-)
+from dobs.domain.services.row_parser import parse_rows, filter_transaction_rows
+from dobs.domain.value_objects.raw_row import RawRow
 
 
 _SAMPLE_FLOWING = (
@@ -30,9 +28,8 @@ def test_iso_date_inferred_from_period():
 
 def test_amounts_parsed_with_running_balance_split():
     rows = parse_rows(_SAMPLE_FLOWING, "2025-04-01")
-    # First row: 1,809.28 amount + 598,877.98 balance
     r = rows[0]
-    assert r.amounts == [1809.28]
+    assert list(r.amounts) == [1809.28]
     assert r.balance == 598877.98
 
 
@@ -41,7 +38,7 @@ def test_check_row_flagged():
     check = [r for r in rows if "CHECK" in r.description]
     assert len(check) == 1
     assert check[0].is_check
-    assert check[0].amounts == [500.00]
+    assert list(check[0].amounts) == [500.00]
 
 
 def test_balance_markers_flagged_and_filtered():
@@ -49,15 +46,15 @@ def test_balance_markers_flagged_and_filtered():
     assert any(r.likely_marker for r in rows)
     kept = filter_transaction_rows(rows)
     assert all(not r.likely_marker for r in kept)
-    assert len(kept) == 1   # only the AIRLINEHYD row survives
+    assert len(kept) == 1
     assert "AIRLINEHYD" in kept[0].description
 
 
 def test_filter_drops_empty_description():
     rows = [
-        RawRow(date_iso="2025-04-01", description="", amounts=[1.0],
+        RawRow(date_iso="2025-04-01", description="", amounts=(1.0,),
                balance=None, raw=""),
-        RawRow(date_iso="2025-04-01", description="OK", amounts=[1.0],
+        RawRow(date_iso="2025-04-01", description="OK", amounts=(1.0,),
                balance=None, raw=""),
     ]
     kept = filter_transaction_rows(rows)
@@ -65,7 +62,6 @@ def test_filter_drops_empty_description():
 
 
 def test_year_rollover_inferred():
-    # Period spans Dec -> Jan; Jan rows should bump to next year.
     text = "Dec 31 SOMETHING 100.00  500.00  Jan 02 OTHER 200.00 700.00"
     rows = parse_rows(text, "2024-12-15")
     iso = sorted(r.date_iso for r in rows)

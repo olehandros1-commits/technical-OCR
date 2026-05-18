@@ -1,10 +1,6 @@
-"""Tests for the statement segmentation stage."""
-from extractor.segment import split_statements
+from dobs.application.services.segmenter import split_statements
 
 
-# Each fixture statement carries 5+ date-amount rows so the new
-# `_looks_like_real_statement` filter accepts them. Real Ixonia statements
-# have 60-200; we keep the test fixture compact but above threshold.
 SAMPLE = """
 Ixonia Bank
 Account Number: 4664
@@ -34,17 +30,16 @@ May 06 SIXTH 7.00 509,148.59
 """
 
 
-def test_finds_two_statements():
-    segs = split_statements(SAMPLE)
+async def test_finds_two_statements():
+    segs = await split_statements(SAMPLE)
     assert len(segs) == 2
     assert segs[0].period_start_raw == "04/01/2025"
     assert segs[1].period_start_raw == "05/01/2025"
     assert segs[0].account_hint == "4664"
 
 
-def test_dedup_repeated_header():
+async def test_dedup_repeated_header():
     duplicated = SAMPLE + "\n" + SAMPLE
-    segs = split_statements(duplicated)
-    # The same (period, account) pair appears twice; dedupe keeps one each.
+    segs = await split_statements(duplicated)
     keys = {s.key for s in segs}
     assert len(keys) == 2

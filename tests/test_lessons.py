@@ -1,30 +1,27 @@
-"""Tests for the RLAIF-lite lessons store + repair diagnosis."""
 from pathlib import Path
 
-from extractor.prompt_lessons import (
-    LessonsStore,
-    diagnose_repair,
-    lessons_block,
-)
-from extractor.schemas import ReconciliationResult, Transaction
+from dobs.infrastructure.adapters.lessons.sqlite_lessons_store import SqliteLessonsStore as LessonsStore
+from dobs.application.services.lessons_helpers import diagnose_repair, lessons_block
+from dobs.domain.value_objects.reconciliation import ReconciliationResult
+from dobs.domain.value_objects.transaction import Transaction
 
 
 def _recon(ok: bool, dep_delta: float = 0.0, with_delta: float = 0.0, **kw) -> ReconciliationResult:
     return ReconciliationResult(
         ok=ok,
-        deposits_sum=0, withdrawals_sum=0,
-        deposits_count_actual=0, withdrawals_count_actual=0,
+        deposits_sum=0,
+        withdrawals_sum=0,
+        deposits_count_actual=0,
+        withdrawals_count_actual=0,
         deposits_total_delta=dep_delta,
         withdrawals_total_delta=with_delta,
         deposits_count_delta=kw.get("dep_count_delta", 0),
         withdrawals_count_delta=kw.get("with_count_delta", 0),
         balance_equation_delta=kw.get("bal", 0),
-        issues=[],
     )
 
 
 def test_diagnose_side_flip_detected():
-    # Mirror-image deltas: +$100 deposits, -$100 withdrawals -> side flip.
     before = _recon(ok=False, dep_delta=100.0, with_delta=-100.0)
     after = _recon(ok=True)
     prev = [Transaction(date="2025-04-01", description="X", deposit=None, withdrawal=100.0)]
@@ -58,29 +55,27 @@ def test_diagnose_no_lessons_when_already_ok():
     assert diagnose_repair(before, after, [], []) == []
 
 
-def test_store_roundtrip(tmp_path: Path):
-    store = LessonsStore(tmp_path / "lessons.db")
-    store.record("hash1", "hint A", "src1")
-    store.record("hash2", "hint B", "src2")
-    # Dedupe on (pattern_hash, hint).
-    store.record("hash1", "hint A", "src3")
-    assert len(store.top_hints(10)) == 2
+async def test_store_roundtrip(tmp_path: Path):
+    store = LessonsStore(db_path=tmp_path / "lessons.db")
+    await store.record("hash1", "hint A", "src1")
+    await store.record("hash2", "hint B", "src2")
+    await store.record("hash1", "hint A", "src3")
+    hints = await store.top_hints(10)
+    assert len(hints) == 2
 
 
-def test_lessons_block_empty_when_store_empty(tmp_path: Path):
-    store = LessonsStore(tmp_path / "lessons.db")
-    assert lessons_block(store) == ""
+async def test_lessons_block_empty_when_store_empty(tmp_path: Path):
+    store = LessonsStore(db_path=tmp_path / "lessons.db")
+    hints = await store.top_hints(10)
+    assert lessons_block(hints) == ""
 
 
-def test_lessons_block_renders_top_hints(tmp_path: Path):
-    store = LessonsStore(tmp_path / "lessons.db")
-    store.record("a", "alpha", "src")
-    store.record("b", "beta", "src")
-    block = lessons_block(store, limit=5)
+async def test_lessons_block_renders_top_hints(tmp_path: Path):
+    store = LessonsStore(db_path=tmp_path / "lessons.db")
+    await store.record("a", "alpha", "src")
+    await store.record("b", "beta", "src")
+    hints = await store.top_hints(5)
+    block = lessons_block(hints)
     assert "alpha" in block
     assert "beta" in block
     assert "Lessons from previous extractions" in block
-
-
-def lessons_str(p, h):
-    return f"{p}-{h}"

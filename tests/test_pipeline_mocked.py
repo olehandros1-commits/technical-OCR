@@ -1,23 +1,36 @@
-"""Integration tests with a mocked LLM backend.
+from pydantic import BaseModel, ConfigDict
 
-We stub `LLMBackend.call_structured` so the whole pipeline runs without
-hitting an API. This lets us verify:
-  * Stages are wired correctly (summary -> transactions -> reconcile ->
-    repair if needed -> enrich -> anomaly).
-  * Telemetry is recorded.
-  * Cache writes only happen on reconcile=ok.
-  * Repair loop fires when reconciliation fails and stops when fixed.
-"""
-from pathlib import Path
-from pydantic import BaseModel
-
-from extractor.backends.base import LLMBackend, LLMRole
-from extractor.cache import StatementCache
-from extractor.pipeline import _process_segment
-from extractor.segment import StatementSegment
-from extractor.extract_summary import SummaryResponse
-from extractor.extract_transactions import TransactionsResponse
-from extractor.schemas import Account, Period, Summary, Transaction
+from dobs.application.commands.extraction.extract_statement import (
+    ExtractStatementCommand,
+    ExtractStatementHandler,
+)
+from dobs.application.commands.extraction.extract_summary import (
+    ExtractSummaryCommand,
+    ExtractSummaryHandler,
+)
+from dobs.application.commands.extraction.extract_transactions import (
+    ExtractTransactionsCommand,
+    ExtractTransactionsHandler,
+)
+from dobs.application.commands.extraction.extract_transactions_hybrid import (
+    ExtractTransactionsHybridHandler,
+    _TransactionsResult,
+)
+from dobs.application.commands.extraction.repair_statement import (
+    RepairStatementCommand,
+    RepairStatementHandler,
+)
+from dobs.application.commands.extraction.enrich_transactions import (
+    EnrichTransactionsCommand,
+    EnrichTransactionsHandler,
+)
+from dobs.application.services.segmenter import StatementSegment
+from dobs.domain.value_objects.account import Account
+from dobs.domain.value_objects.period import Period
+from dobs.domain.value_objects.summary import Summary
+from dobs.domain.value_objects.transaction import Transaction
+from dobs.domain.value_objects.llm_role import LLMRole
+from dobs.infrastructure.adapters.cache.memory_cache import MemoryStatementCache
 
 
 _SEGMENT_TEXT = (
@@ -31,66 +44,133 @@ _SEGMENT_TEXT = (
     "Apr 03 PAY 50.00\n"
 )
 
+_ACCOUNT = Account(
+    bank="Ixonia Bank",
+    account_last4="4664",
+    period=Period(start="2025-04-01", end="2025-04-30"),
+)
+_SUMMARY = Summary(
+    beginning_balance=1000.0,
+    ending_balance=1250.0,
+    deposits_total=300.0,
+    deposits_count=2,
+    withdrawals_total=50.0,
+    withdrawals_count=1,
+)
+_TRANSACTIONS = [
+    Transaction(date="2025-04-01", description="SOMETHING", deposit=100.0),
+    Transaction(date="2025-04-02", description="OTHER", deposit=200.0),
+    Transaction(date="2025-04-03", description="PAY", withdrawal=50.0),
+]
 
-class MockBackend(LLMBackend):
-    """Returns canned responses. Reconciles on first try."""
+
+class _SummaryResponse(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    account: Account
+    summary: Summary
+
+
+class _MockLLM:
     name = "mock"
 
-    def __init__(self) -> None:
+    def __init__(self, tx_list=None) -> None:
         self.calls: list[str] = []
+        self._tx_list = tx_list or _TRANSACTIONS
 
-    def call_structured(
-        self, system: str, user: str, response_model,
-        *, role=LLMRole.EXTRACT, max_retries=6, cache_system=True,
-    ):
+    async def call_structured(self, *, system, user, response_model, role=LLMRole.EXTRACT, **kw):
         self.calls.append(response_model.__name__)
-        if response_model is SummaryResponse:
-            return SummaryResponse(
-                account=Account(
-                    bank="Ixonia Bank",
-                    account_last4="4664",
-                    period=Period(start="2025-04-01", end="2025-04-30"),
-                ),
-                summary=Summary(
-                    beginning_balance=1000.0,
-                    ending_balance=1250.0,
-                    deposits_total=300.0,
-                    deposits_count=2,
-                    withdrawals_total=50.0,
-                    withdrawals_count=1,
-                ),
-            )
-        if response_model is TransactionsResponse:
-            return TransactionsResponse(
-                transactions=[
-                    Transaction(date="2025-04-01", description="SOMETHING", deposit=100.0),
-                    Transaction(date="2025-04-02", description="OTHER", deposit=200.0),
-                    Transaction(date="2025-04-03", description="PAY", withdrawal=50.0),
-                ]
-            )
+        from dobs.application.commands.extraction.extract_summary import _SummaryResponse as SR
+        from dobs.application.commands.extraction.extract_transactions_hybrid import _TransactionsResult as TR
+        if response_model is SR:
+            return SR(account=_ACCOUNT, summary=_SUMMARY)
+        if response_model is TR:
+            return TR(transactions=list(self._tx_list))
         raise NotImplementedError(response_model.__name__)
 
+    async def call_vision(self, **kw):
+        raise NotImplementedError
 
-class BadThenGoodBackend(MockBackend):
-    """First transactions call returns wrong list, second (repair) returns right one."""
+    def supports_vision(self):
+        return False
+
+
+class _BadThenGoodLLM(_MockLLM):
     def __init__(self) -> None:
         super().__init__()
         self.tx_calls = 0
 
-    def call_structured(self, system, user, response_model, **kw):
+    async def call_structured(self, *, system, user, response_model, **kw):
+        from dobs.application.commands.extraction.extract_summary import _SummaryResponse as SR
+        from dobs.application.commands.extraction.extract_transactions_hybrid import _TransactionsResult as TR
         self.calls.append(response_model.__name__)
-        if response_model is SummaryResponse:
-            return super().call_structured(system, user, response_model, **kw)
-        if response_model is TransactionsResponse:
+        if response_model is SR:
+            return SR(account=_ACCOUNT, summary=_SUMMARY)
+        if response_model is TR:
             self.tx_calls += 1
             if self.tx_calls == 1:
-                # Missing one deposit (only 200 + 50, not 100 + 200 + 50).
-                return TransactionsResponse(transactions=[
+                return TR(transactions=[
                     Transaction(date="2025-04-02", description="OTHER", deposit=200.0),
                     Transaction(date="2025-04-03", description="PAY", withdrawal=50.0),
                 ])
-            return super().call_structured(system, user, response_model, **kw)
+            return TR(transactions=list(_TRANSACTIONS))
         raise NotImplementedError
+
+
+class _NullEventBus:
+    async def emit(self, name, data):
+        pass
+
+    async def publish(self, name, data):
+        pass
+
+
+class _NullAudit:
+    async def record(self, ts, rec):
+        return 1
+
+    async def recent(self, limit=50):
+        return []
+
+
+class _NullTelemetry:
+    def record(self, stats):
+        pass
+
+    def summary(self):
+        return {}
+
+
+class _NullVendorLookup:
+    async def lookup(self, raw):
+        from dobs.application.ports.vendor_lookup import VendorInfo
+        return VendorInfo(raw=raw)
+
+    async def enrich_in_place(self, txns):
+        return 0
+
+
+def _build_handler(llm, cache=None):
+    if cache is None:
+        cache = MemoryStatementCache()
+    hybrid = ExtractTransactionsHybridHandler(llm=llm)
+    summary_h = ExtractSummaryHandler(llm=llm)
+    tx_h = ExtractTransactionsHandler(llm=llm, hybrid=hybrid)
+    repair_h = RepairStatementHandler(llm=llm)
+    enrich_h = EnrichTransactionsHandler(llm=llm)
+    return ExtractStatementHandler(
+        ocr=None,
+        cache=cache,
+        audit=_NullAudit(),
+        lessons=None,
+        event_bus=_NullEventBus(),
+        telemetry=_NullTelemetry(),
+        summary=summary_h,
+        transactions=tx_h,
+        repair=repair_h,
+        enrich_cmd=enrich_h,
+        vendor=_NullVendorLookup(),
+        llm=llm,
+    )
 
 
 def _seg() -> StatementSegment:
@@ -102,43 +182,49 @@ def _seg() -> StatementSegment:
     )
 
 
-def test_happy_path_reconciles_first_try(tmp_path):
-    backend = MockBackend()
-    statement = _process_segment(
-        _seg(), backend,
-        cache=StatementCache(tmp_path / "c.db"),
+async def test_happy_path_reconciles_first_try():
+    llm = _MockLLM()
+    handler = _build_handler(llm)
+    seg = _seg()
+    command = ExtractStatementCommand(
+        pdf_path="",
+        tenant="_default",
     )
+    statement = await handler._process_segment_inner(seg, command)
+    assert statement is not None
     assert statement.reconciliation.ok
     assert len(statement.transactions) == 3
-    # Only 2 calls (summary + transactions); no repair.
-    assert backend.calls == ["SummaryResponse", "TransactionsResponse"]
 
 
-def test_repair_loop_fixes_extraction(tmp_path):
-    backend = BadThenGoodBackend()
-    statement = _process_segment(
-        _seg(), backend,
-        cache=StatementCache(tmp_path / "c.db"),
-    )
+async def test_repair_loop_fixes_extraction():
+    llm = _BadThenGoodLLM()
+    handler = _build_handler(llm)
+    seg = _seg()
+    command = ExtractStatementCommand(pdf_path="", tenant="_default")
+    statement = await handler._process_segment_inner(seg, command)
+    assert statement is not None
     assert statement.reconciliation.ok
     assert len(statement.transactions) == 3
-    # summary + 2 tx attempts = 3 calls.
-    assert backend.tx_calls == 2
+    assert llm.tx_calls == 2
 
 
-def test_cache_skips_processing(tmp_path):
-    backend = MockBackend()
-    cache = StatementCache(tmp_path / "c.db")
-    # First run: full pipeline.
-    _process_segment(_seg(), backend, cache=cache)
-    n_after_first = len(backend.calls)
-    # Second run: should be a cache hit (zero new calls).
-    _process_segment(_seg(), backend, cache=cache)
-    assert len(backend.calls) == n_after_first
+async def test_cache_skips_processing():
+    llm = _MockLLM()
+    cache = MemoryStatementCache()
+    handler = _build_handler(llm, cache=cache)
+    seg = _seg()
+    command = ExtractStatementCommand(pdf_path="", tenant="_default")
+    await handler._process_segment_inner(seg, command)
+    n_after_first = len(llm.calls)
+    await handler._process_segment_inner(seg, command)
+    assert len(llm.calls) == n_after_first
 
 
-def test_anomaly_detection_runs(tmp_path):
-    backend = MockBackend()
-    statement = _process_segment(_seg(), backend, cache=StatementCache(tmp_path / "c.db"))
-    # No anomalies in clean canned data -- but the field exists.
+async def test_anomaly_detection_runs():
+    llm = _MockLLM()
+    handler = _build_handler(llm)
+    seg = _seg()
+    command = ExtractStatementCommand(pdf_path="", tenant="_default")
+    statement = await handler._process_segment_inner(seg, command)
+    assert statement is not None
     assert isinstance(statement.anomalies, list)

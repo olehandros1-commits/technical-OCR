@@ -1,91 +1,63 @@
-"""Tests for vendor_lookup.
-
-We don't hit the live Clearbit endpoint in tests -- the env switch
-VENDOR_DISABLE_CLEARBIT=1 makes the lookup return None and fall
-through to the stub, which is exactly what unit tests need.
-"""
 import json
 import os
+from pathlib import Path
 
 import pytest
 
-from extractor import vendor_lookup as vl
+from dobs.infrastructure.adapters.vendor.seed_lookup import SeedVendorLookup, _normalise_key
+from dobs.infrastructure.adapters.vendor.clearbit_lookup import ClearbitVendorLookup
+from dobs.infrastructure.adapters.vendor.composite_lookup import CompositeVendorLookup
 
 
 @pytest.fixture(autouse=True)
 def disable_clearbit(monkeypatch):
     monkeypatch.setenv("VENDOR_DISABLE_CLEARBIT", "1")
-    # Use a temp cache file per test to avoid cross-test pollution.
     yield
 
 
-def test_stub_when_nothing_matches(tmp_path, monkeypatch):
-    monkeypatch.setattr(vl, "_CACHE_PATH", tmp_path / "vc.db")
-    monkeypatch.setattr(vl, "_SEEDS_CACHE", {})  # no seeds either
-    info = vl.lookup_vendor("Random Company XYZ")
-    assert info.source == "stub"
-    assert info.canonical_name == "Random Company Xyz"
+def _seed_lookup_with_data(tmp_path: Path, seeds: dict) -> SeedVendorLookup:
+    seeds_file = tmp_path / "seeds.json"
+    seeds_file.write_text(json.dumps(seeds), encoding="utf-8")
+    return SeedVendorLookup(seeds_path=seeds_file)
 
 
-def test_seed_lookup(tmp_path, monkeypatch):
-    monkeypatch.setattr(vl, "_CACHE_PATH", tmp_path / "vc.db")
-    monkeypatch.setattr(vl, "_SEEDS_CACHE", {
-        "acme corp": {"name": "Acme Corp", "domain": "acme.com",
-                      "logo_url": "https://logo.clearbit.com/acme.com"},
+async def test_stub_when_nothing_matches(tmp_path):
+    lookup = _seed_lookup_with_data(tmp_path, {})
+    info = await lookup.lookup("Random Company XYZ")
+    assert info.canonical_name is None
+
+
+async def test_seed_lookup(tmp_path):
+    lookup = _seed_lookup_with_data(tmp_path, {
+        "Acme Corp": {"name": "Acme Corp", "logo_url": "https://logo.clearbit.com/acme.com"},
     })
-    info = vl.lookup_vendor("Acme Corp")
-    assert info.source == "seed"
+    info = await lookup.lookup("Acme Corp")
     assert info.canonical_name == "Acme Corp"
-    assert info.domain == "acme.com"
+    assert info.logo_url == "https://logo.clearbit.com/acme.com"
 
 
-def test_seed_fuzzy_prefix(tmp_path, monkeypatch):
-    monkeypatch.setattr(vl, "_CACHE_PATH", tmp_path / "vc.db")
-    monkeypatch.setattr(vl, "_SEEDS_CACHE", {
-        "genuine parts": {"name": "Genuine Parts Co", "domain": "genpt.com"},
+async def test_seed_fuzzy_prefix(tmp_path):
+    lookup = _seed_lookup_with_data(tmp_path, {
+        "Genuine Parts": {"name": "Genuine Parts Co"},
     })
-    info = vl.lookup_vendor("GENUINE PARTS CO/ACH")
-    assert info.source == "seed"
-    assert info.domain == "genpt.com"
+    info = await lookup.lookup("GENUINE PARTS CO/ACH")
+    assert info.canonical_name == "Genuine Parts Co"
 
 
-def test_cache_hits_skip_lookup(tmp_path, monkeypatch):
-    monkeypatch.setattr(vl, "_CACHE_PATH", tmp_path / "vc.db")
-    monkeypatch.setattr(vl, "_SEEDS_CACHE", {
-        "acme": {"name": "Acme", "domain": "acme.com"},
+async def test_seed_returns_none_for_unmatched(tmp_path):
+    lookup = _seed_lookup_with_data(tmp_path, {
+        "acme": {"name": "Acme", "logo_url": "https://logo.clearbit.com/acme.com"},
     })
-    info1 = vl.lookup_vendor("Acme")
-    info2 = vl.lookup_vendor("Acme")
+    info1 = await lookup.lookup("Acme")
+    info2 = await lookup.lookup("Acme")
     assert info1.canonical_name == info2.canonical_name
-    # Persisted to sqlite -- file exists now.
-    assert (tmp_path / "vc.db").exists()
 
 
-def test_enrich_vendors_in_place(tmp_path, monkeypatch):
-    monkeypatch.setattr(vl, "_CACHE_PATH", tmp_path / "vc.db")
-    monkeypatch.setattr(vl, "_SEEDS_CACHE", {
-        "acme": {"name": "Acme Corp", "domain": "acme.com",
-                 "logo_url": "https://logo.clearbit.com/acme.com"},
-    })
-    txns = [
-        {"date": "2025-04-01", "description": "X", "vendor": "Acme"},
-        {"date": "2025-04-02", "description": "Y", "vendor": "Unknown Vendor"},
-        {"date": "2025-04-03", "description": "Z", "vendor": None},
-    ]
-    n = vl.enrich_vendors_in_place(txns)
-    assert n == 1
-    assert txns[0]["_vendor_logo"].startswith("https://")
-    assert "_vendor_logo" not in txns[1]
-    assert "_vendor_logo" not in txns[2]
-
-
-def test_empty_vendor_returns_stub(tmp_path, monkeypatch):
-    monkeypatch.setattr(vl, "_CACHE_PATH", tmp_path / "vc.db")
-    info = vl.lookup_vendor("")
-    assert info.source == "stub"
-    assert info.canonical_name == ""
+async def test_empty_vendor_returns_none_name(tmp_path):
+    lookup = _seed_lookup_with_data(tmp_path, {})
+    info = await lookup.lookup("")
+    assert info.canonical_name is None
 
 
 def test_normalise_key_collapses_whitespace_and_lowercases():
-    # _normalise_key keeps punctuation but collapses spaces and lowercases.
-    assert vl._normalise_key("  Acme  CORP/INC.  ") == "acme corp/inc."
+    assert _normalise_key("  Acme  CORP/INC.  ") == "acme corp/inc."

@@ -1,10 +1,9 @@
-"""Tests for the date-range statement chunker."""
 from datetime import date
-from extractor.chunking import (
+from dobs.application.services.chunking import (
     chunk_segment_by_date_ranges,
     merge_chunks,
 )
-from extractor.schemas import Transaction
+from dobs.domain.value_objects.transaction import Transaction
 
 
 def _make_segment(n_days: int = 20) -> str:

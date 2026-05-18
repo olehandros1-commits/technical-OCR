@@ -1,14 +1,4 @@
-"""Tests for prompt-injection defences.
-
-These exercise security.find_injection_attempts / strip_injections /
-safe_wrap on payloads representative of real attack vectors:
-  * straight 'ignore previous' phrasing
-  * role overrides
-  * fake system tags
-  * tool/function leakage
-  * benign text that should NOT trip the detectors
-"""
-from extractor.security import (
+from dobs.domain.services.prompt_sanitizer import (
     find_injection_attempts,
     strip_injections,
     safe_wrap,

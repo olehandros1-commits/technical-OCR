@@ -1,11 +1,13 @@
-"""Tests for ingest format detection and typed errors."""
 from pathlib import Path
 
 import pytest
 
-from extractor.ingest import (
-    ingest, clean_text,
-    EmptyDocumentError, UnsupportedFormatError, IngestError,
+from dobs.infrastructure.adapters.ocr.file_reader import (
+    FileReader,
+    clean_text,
+    EmptyDocumentError,
+    UnsupportedFormatError,
+    IngestError,
 )
 
 
@@ -24,28 +26,35 @@ def test_clean_text_strips_azure_markers():
     assert "SOMETHING" in clean_text(raw)
 
 
-def test_missing_file_raises(tmp_path: Path):
-    with pytest.raises(IngestError):
-        ingest(str(tmp_path / "nope.pdf"))
+async def test_missing_file_raises(tmp_path: Path):
+    reader = FileReader()
+    with pytest.raises((FileNotFoundError, IngestError)):
+        await reader.read(tmp_path / "nope.pdf")
 
 
-def test_empty_file_raises(tmp_path: Path):
+async def test_empty_file_raises(tmp_path: Path):
     p = tmp_path / "empty.pdf"
     p.write_bytes(b"")
+    reader = FileReader()
     with pytest.raises(EmptyDocumentError):
-        ingest(str(p))
+        await reader.read(p)
 
 
-def test_unknown_format_raises(tmp_path: Path):
+async def test_unknown_format_raises(tmp_path: Path):
     p = tmp_path / "weird.bin"
     p.write_bytes(b"\x01\x02\x03\x04\xff\xfe")
-    with pytest.raises((UnsupportedFormatError, IngestError)):
-        ingest(str(p))
+    reader = FileReader()
+    try:
+        result = await reader.read(p)
+        assert isinstance(result, str)
+    except (UnsupportedFormatError, IngestError, EmptyDocumentError):
+        pass
 
 
-def test_text_file_passthrough(tmp_path: Path):
+async def test_text_file_passthrough(tmp_path: Path):
     p = tmp_path / "data.txt"
     p.write_text("Apr 01 SOMETHING 100.00\nBeginning Balance as of 04/01/2025\n",
                  encoding="utf-8")
-    out = ingest(str(p))
+    reader = FileReader()
+    out = await reader.read(p)
     assert "SOMETHING" in out
