@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import os
 import tempfile
 import uuid
 from pathlib import Path
@@ -11,9 +12,10 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from fastapi.responses import FileResponse, StreamingResponse
 
 from dobs.application.commands.extraction.extract_statement import ExtractStatementCommand
+from dobs.infrastructure.adapters.event_bus.store_event_bus import StoreEventBus
+from dobs.infrastructure.adapters.jobs.memory_job_store import MemoryJobStore
 from dobs.presentation.api.http.middleware.api_key import api_key_dependency
 from dobs.presentation.api.http.middleware.tenant import current_tenant
-from dobs.presentation.api.http.v1.extraction.job_registry import JobEntry, get_job_registry
 from dobs.presentation.api.http.v1.extraction.schemas import (
     ExtractResponse,
     JobCreatedResponse,
@@ -48,6 +50,17 @@ def _serialize_results(results: list) -> list[dict]:
     if isinstance(results[0], dict):
         return results
     return [dataclasses.asdict(r) for r in results]
+
+
+_memory_store = MemoryJobStore()
+
+
+def _get_store():
+    redis_url = os.getenv("REDIS_URL")
+    if redis_url:
+        from dobs.infrastructure.adapters.jobs.redis_job_store import RedisJobStore
+        return RedisJobStore(url=redis_url)
+    return _memory_store
 
 
 @router.post("/extract", status_code=status.HTTP_200_OK, response_model=ExtractResponse)
@@ -88,67 +101,64 @@ async def create_job(
 ) -> JobCreatedResponse:
     pdf_path, txt_path = _persist_uploads(pdf, txt)
     job_id = str(uuid.uuid4())
-    registry = get_job_registry()
-
-    from dobs.presentation.api.http.v1.extraction.job_registry import JobEntry
-
-    class _SimpleEventBus:
-        def __init__(self) -> None:
-            self._queue: asyncio.Queue = asyncio.Queue()
-
-        async def publish(self, event_name: str, data: dict) -> None:
-            await self._queue.put({"event": event_name, "data": data})
-
-        async def get(self) -> dict:
-            return await self._queue.get()
-
-    event_bus = _SimpleEventBus()
     tenant = current_tenant()
+    store = _get_store()
 
-    async def _run() -> None:
-        try:
-            command = ExtractStatementCommand(
-                pdf_path=str(pdf_path),
-                txt_path=str(txt_path) if txt_path else None,
-                tier=tier or None,
-                ocr_mode=ocr_mode,
-                enrich=enrich,
-                parallel=parallel,
-                tenant=tenant,
-            )
-            results = await handler(command)
-            await registry.mark_done(job_id, result=_serialize_results(results))
-        except Exception as exc:
-            await registry.mark_done(job_id, error=str(exc))
-        finally:
-            await event_bus.publish("done", {})
+    command = ExtractStatementCommand(
+        pdf_path=str(pdf_path),
+        txt_path=str(txt_path) if txt_path else None,
+        tier=tier or None,
+        ocr_mode=ocr_mode,
+        enrich=enrich,
+        parallel=parallel,
+        tenant=tenant,
+    )
 
-    task = asyncio.create_task(_run())
-    await registry.register_job(job_id, event_bus, task)
+    redis_url = os.getenv("REDIS_URL")
+    if redis_url:
+        from dobs.infrastructure.adapters.jobs.arq_job_queue import ArqJobQueue
+        queue = ArqJobQueue(redis_url=redis_url)
+        await store.write_event(job_id, {"event": "queued", "data": {}})
+        await queue.enqueue(job_id, command)
+    else:
+        await store.write_event(job_id, {"event": "queued", "data": {}})
+
+        async def _run_inprocess() -> None:
+            event_bus = StoreEventBus(store=store, job_id=job_id)
+            from dobs.main.composition_root import build_container
+            from dobs.main.config.settings import AppSettings
+
+            container = build_container(AppSettings(backend=backend or None))
+            container._event_bus = event_bus  # type: ignore[attr-defined]
+            local_handler = container.extract_handler()
+            try:
+                results = await local_handler(command)
+                await store.write_result(job_id, result=_serialize_results(results))
+            except Exception as exc:
+                await store.write_result(job_id, error=str(exc))
+
+        asyncio.create_task(_run_inprocess())
+
     return JobCreatedResponse(job_id=job_id)
 
 
 @router.get("/jobs/{job_id}/events")
 async def job_events(job_id: str) -> StreamingResponse:
-    registry = get_job_registry()
-    entry: JobEntry | None = await registry.get_job(job_id)
-    if entry is None:
+    store = _get_store()
+    if not await store.exists(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
     async def _stream():
-        while True:
-            msg = await entry.event_bus.get()
-            yield f"data: {json.dumps(msg)}\n\n"
-            if msg.get("event") == "done":
-                break
+        async for event in store.read_events(job_id):
+            yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
 @router.get("/jobs/{job_id}", response_model=JobResultResponse)
 async def get_job(job_id: str) -> JobResultResponse:
-    registry = get_job_registry()
-    result, error, done = await registry.result_of(job_id)
+    store = _get_store()
+    result, error, done = await store.read_result(job_id)
     if result is None and error == "Job not found":
         raise HTTPException(status_code=404, detail="Job not found")
     return JobResultResponse(job_id=job_id, done=done, results=result, error=error)

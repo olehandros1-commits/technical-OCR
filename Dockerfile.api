@@ -19,7 +19,7 @@ COPY src/ ./src/
 # backend talking to a host-side Ollama via host.docker.internal).
 # grpc / streamlit / otel are still off here -- the API doesn't need them
 # to serve cloud or local backends.
-RUN pip install --no-cache-dir -e ".[ocr,redis,ollama]"
+RUN pip install --no-cache-dir -e ".[ocr,redis,ollama,queue]"
 
 EXPOSE 8000
 ENV PYTHONUNBUFFERED=1

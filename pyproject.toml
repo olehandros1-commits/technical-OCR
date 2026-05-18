@@ -23,6 +23,7 @@ dependencies = [
 ocr     = ["pytesseract>=0.3.10", "pdf2image>=1.17.0", "pillow>=10.0.0"]
 ollama  = ["ollama>=0.4.0"]
 redis   = ["redis>=5.0.0"]
+queue   = ["arq>=0.26.0", "redis>=5.0.0"]
 otel    = [
     "opentelemetry-api>=1.25.0",
     "opentelemetry-sdk>=1.25.0",
@@ -31,7 +32,7 @@ otel    = [
 streamlit = ["streamlit>=1.36.0", "pandas>=2.2.0", "requests>=2.32.0"]
 dev     = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0"]
 all     = [
-    "dobs[ocr,ollama,redis,otel,streamlit]",
+    "dobs[ocr,ollama,redis,queue,otel,streamlit]",
 ]
 
 [project.scripts]
