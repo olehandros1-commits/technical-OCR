@@ -1,0 +1,72 @@
+name: dobs
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - EXTRACTOR_CORS_ALLOW=*
+      - EXTRACTOR_BACKEND=${EXTRACTOR_BACKEND:-anthropic}
+      - EXTRACTOR_TIER=${EXTRACTOR_TIER:-}
+      - EXTRACTOR_DEMO_REPLAY=${EXTRACTOR_DEMO_REPLAY:-0}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL_CHEAP=${OLLAMA_MODEL_CHEAP:-qwen2.5:14b}
+      - OLLAMA_MODEL_EXTRACT=${OLLAMA_MODEL_EXTRACT:-qwen2.5:14b}
+      - OLLAMA_MODEL_REPAIR=${OLLAMA_MODEL_REPAIR:-qwen2.5:14b}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../out:/app/out
+    depends_on:
+      - redis
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    command: ["python", "-m", "dobs.main.worker"]
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - EXTRACTOR_BACKEND=${EXTRACTOR_BACKEND:-anthropic}
+      - EXTRACTOR_TIER=${EXTRACTOR_TIER:-}
+      - EXTRACTOR_DEMO_REPLAY=${EXTRACTOR_DEMO_REPLAY:-0}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../out:/app/out
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  ui:
+    build:
+      context: ../frontend
+      dockerfile: ../docker/Dockerfile.frontend
+    ports:
+      - "8080:80"
+    depends_on: [api]
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+
+volumes:
+  ollama-models:
+  redis-data:
