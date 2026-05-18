@@ -37,6 +37,7 @@ all     = [
 
 [project.scripts]
 extract-statement = "extractor.cli:main"
+dobs-ui = "dobs.presentation.streamlit.app:run"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -44,3 +45,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
