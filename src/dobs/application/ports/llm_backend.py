@@ -1,11 +1,11 @@
 from __future__ import annotations
-from abc import abstractmethod
+
 from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
 
-from src.dobs.domain.value_objects.image_part import ImagePart
-from src.dobs.domain.value_objects.llm_role import LLMRole
+from dobs.domain.value_objects.image_part import ImagePart
+from dobs.domain.value_objects.llm_role import LLMRole
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -13,7 +13,6 @@ T = TypeVar("T", bound=BaseModel)
 class LLMBackendPort(Protocol):
     name: str
 
-    @abstractmethod
     async def call_structured(
         self,
         *,
@@ -23,10 +22,8 @@ class LLMBackendPort(Protocol):
         role: LLMRole = LLMRole.EXTRACT,
         max_retries: int = 6,
         cache_system: bool = True,
-    ) -> T:
-        raise NotImplementedError
+    ) -> T: ...
 
-    @abstractmethod
     async def call_vision(
         self,
         *,
@@ -35,9 +32,6 @@ class LLMBackendPort(Protocol):
         images: list[ImagePart],
         response_model: type[T],
         max_retries: int = 6,
-    ) -> T:
-        raise NotImplementedError
+    ) -> T: ...
 
-    @abstractmethod
-    def supports_vision(self) -> bool:
-        raise NotImplementedError
+    def supports_vision(self) -> bool: ...

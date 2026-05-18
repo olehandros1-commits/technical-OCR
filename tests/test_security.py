@@ -1,11 +1,26 @@
 from dobs.domain.services.prompt_sanitizer import (
-    find_injection_attempts,
-    strip_injections,
-    safe_wrap,
-    redact_pii,
+    PromptSanitizer,
     DOC_FENCE_OPEN,
     DOC_FENCE_CLOSE,
 )
+
+_sanitizer = PromptSanitizer()
+
+
+def find_injection_attempts(text):
+    return _sanitizer.find_injections(text)
+
+
+def strip_injections(text):
+    return _sanitizer.strip_injections(text)
+
+
+def safe_wrap(text, *, strip=True):
+    return _sanitizer.safe_wrap(text, strip=strip)
+
+
+def redact_pii(text):
+    return _sanitizer.redact_pii(text)
 
 
 def test_finds_ignore_previous():

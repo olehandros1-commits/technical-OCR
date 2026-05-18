@@ -1,4 +1,14 @@
-from dobs.domain.services.row_parser import parse_rows, filter_transaction_rows
+from dobs.domain.services.row_parser import RowParser
+
+_parser = RowParser()
+
+
+def parse_rows(*args, **kwargs):
+    return _parser.parse(*args, **kwargs)
+
+
+def filter_transaction_rows(*args, **kwargs):
+    return _parser.filter_transactions(*args, **kwargs)
 from dobs.domain.value_objects.raw_row import RawRow
 
 

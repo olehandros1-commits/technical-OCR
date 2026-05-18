@@ -8,9 +8,9 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from src.dobs.application.ports.telemetry_collector import CallStats, TelemetryCollectorPort
-from src.dobs.domain.value_objects.image_part import ImagePart
-from src.dobs.domain.value_objects.llm_role import LLMRole
+from dobs.application.ports.telemetry_collector import CallStats, TelemetryCollectorPort
+from dobs.domain.value_objects.image_part import ImagePart
+from dobs.domain.value_objects.llm_role import LLMRole
 
 T = TypeVar("T", bound=BaseModel)
 

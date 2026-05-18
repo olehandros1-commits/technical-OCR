@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 from dobs.application.ports.llm_backend import LLMBackendPort
 from dobs.domain.prompts import SUMMARY_SYSTEM
-from dobs.domain.services.prompt_sanitizer import safe_wrap
+from dobs.domain.services.prompt_sanitizer import PromptSanitizer
 from dobs.domain.value_objects.account import Account
 from dobs.domain.value_objects.llm_role import LLMRole
 from dobs.domain.value_objects.summary import Summary
@@ -29,12 +29,14 @@ class ExtractSummaryHandler:
         /,
         *,
         llm: LLMBackendPort,
+        sanitizer: PromptSanitizer,
     ) -> None:
         self._llm = llm
+        self._sanitizer = sanitizer
 
     async def __call__(self, command: ExtractSummaryCommand) -> tuple[Account, Summary]:
         head = command.segment_text[:6000]
-        wrapped, _ = safe_wrap(head)
+        wrapped, _ = self._sanitizer.safe_wrap(head)
         user = (
             "Below is the text of one bank statement (truncated to the summary "
             "area), wrapped in DOCUMENT_TEXT fences. Extract the structured "

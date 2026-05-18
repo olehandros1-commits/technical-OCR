@@ -1,8 +1,15 @@
 from datetime import date
-from dobs.application.services.chunking import (
-    chunk_segment_by_date_ranges,
-    merge_chunks,
-)
+from dobs.application.services.chunking import TransactionChunker
+
+_chunker = TransactionChunker()
+
+
+def chunk_segment_by_date_ranges(*args, **kwargs):
+    return _chunker.chunk_by_date_ranges(*args, **kwargs)
+
+
+def merge_chunks(*args, **kwargs):
+    return _chunker.merge(*args, **kwargs)
 from dobs.domain.value_objects.transaction import Transaction
 
 

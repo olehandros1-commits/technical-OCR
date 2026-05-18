@@ -6,9 +6,9 @@ from typing import Iterable
 
 from pydantic import BaseModel, ConfigDict
 
-from src.dobs.application.ports.llm_backend import LLMBackendPort
-from src.dobs.domain.prompts import SUMMARY_SYSTEM, TRANSACTIONS_SYSTEM, REPAIR_SYSTEM
-from src.dobs.domain.value_objects.llm_role import LLMRole
+from dobs.application.ports.llm_backend import LLMBackendPort
+from dobs.domain.prompts import SUMMARY_SYSTEM, TRANSACTIONS_SYSTEM, REPAIR_SYSTEM
+from dobs.domain.value_objects.llm_role import LLMRole
 
 
 class _Ack(BaseModel):

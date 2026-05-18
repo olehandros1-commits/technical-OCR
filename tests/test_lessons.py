@@ -1,7 +1,17 @@
 from pathlib import Path
 
 from dobs.infrastructure.adapters.lessons.sqlite_lessons_store import SqliteLessonsStore as LessonsStore
-from dobs.application.services.lessons_helpers import diagnose_repair, lessons_block
+from dobs.application.services.lessons_helpers import LessonsHelper
+
+_lessons = LessonsHelper()
+
+
+def diagnose_repair(*args, **kwargs):
+    return _lessons.diagnose_repair(*args, **kwargs)
+
+
+def lessons_block(hints):
+    return _lessons.build_prompt_block(hints)
 from dobs.domain.value_objects.reconciliation import ReconciliationResult
 from dobs.domain.value_objects.transaction import Transaction
 

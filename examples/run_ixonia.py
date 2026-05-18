@@ -15,9 +15,10 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(ROOT / ".env")
 
+from dishka import make_async_container  # noqa: E402
+
 from dobs.application.commands.extraction.extract_statement import ExtractStatementCommand  # noqa: E402
-from dobs.main.composition_root import build_container  # noqa: E402
-from dobs.main.config.settings import AppSettings  # noqa: E402
+from dobs.main.di import _ReplayingExtractHandler, build_providers  # noqa: E402
 
 
 ETALON = [
@@ -49,18 +50,19 @@ async def _amain() -> int:
     backend_name = os.getenv("EXTRACTOR_BACKEND", "anthropic")
     _stderr(f"Backend: {backend_name}")
 
-    settings = AppSettings(backend=backend_name)
-    container = build_container(settings)
-    handler = container.extract_handler()
-
+    container = make_async_container(*build_providers())
     command = ExtractStatementCommand(
         pdf_path=str(pdf),
         txt_path=str(txt) if txt.exists() else None,
         parallel=2,
     )
-
     t0 = time.time()
-    results = await handler(command)
+    try:
+        async with container() as scope:
+            handler = await scope.get(_ReplayingExtractHandler)
+            results = await handler(command)
+    finally:
+        await container.close()
     elapsed = time.time() - t0
     _stderr(f"\n=== Extraction finished in {elapsed:.1f}s ({len(results)} statements) ===\n")
 

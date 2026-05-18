@@ -7,11 +7,11 @@ import sys
 from pathlib import Path
 
 import click
+from dishka import make_async_container
 from rich.console import Console
 
 from dobs.application.commands.extraction.extract_statement import ExtractStatementCommand
-from dobs.main.composition_root import build_container
-from dobs.main.config.settings import AppSettings
+from dobs.main.di import _ReplayingExtractHandler, build_providers
 
 err = Console(stderr=True)
 
@@ -41,21 +41,12 @@ def extract(
     parallel: int,
     verbose: bool,
 ) -> None:
-    asyncio.run(
-        _run(
-            pdf_path=pdf_path,
-            txt_path=txt_path,
-            all_statements=all_statements,
-            out_path=out_path,
-            xlsx_path=xlsx_path,
-            tier=tier,
-            backend=backend,
-            ocr_mode=ocr_mode,
-            enrich=enrich,
-            parallel=parallel,
-            verbose=verbose,
-        )
-    )
+    asyncio.run(_run(
+        pdf_path=pdf_path, txt_path=txt_path,
+        all_statements=all_statements, out_path=out_path, xlsx_path=xlsx_path,
+        tier=tier, backend=backend, ocr_mode=ocr_mode,
+        enrich=enrich, parallel=parallel, verbose=verbose,
+    ))
 
 
 async def _run(
@@ -73,19 +64,22 @@ async def _run(
 ) -> None:
     if backend:
         os.environ["EXTRACTOR_BACKEND"] = backend
-    settings = AppSettings()
-    container = build_container(settings)
-    handler = container.extract_handler()
 
-    command = ExtractStatementCommand(
-        pdf_path=pdf_path,
-        txt_path=txt_path,
-        tier=tier,
-        ocr_mode=ocr_mode,
-        enrich=enrich,
-        parallel=parallel,
-    )
-    results = await handler(command)
+    container = make_async_container(*build_providers())
+    try:
+        async with container() as scope:
+            handler = await scope.get(_ReplayingExtractHandler)
+            command = ExtractStatementCommand(
+                pdf_path=pdf_path,
+                txt_path=txt_path,
+                tier=tier,
+                ocr_mode=ocr_mode,
+                enrich=enrich,
+                parallel=parallel,
+            )
+            results = await handler(command)
+    finally:
+        await container.close()
 
     if not all_statements:
         results = results[:1]

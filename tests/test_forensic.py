@@ -1,6 +1,12 @@
 from datetime import date, timedelta
 
-from dobs.domain.services.forensic_detector import detect_forensic_anomalies
+from dobs.domain.services.forensic_detector import ForensicAnomalyDetector
+
+_forensic = ForensicAnomalyDetector()
+
+
+async def detect_forensic_anomalies(*args, **kwargs):
+    return await _forensic.detect(*args, **kwargs)
 from dobs.domain.value_objects.transaction import Transaction
 
 

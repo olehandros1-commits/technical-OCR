@@ -7,6 +7,8 @@ from dobs.application.commands.extraction.extract_transactions_hybrid import (
     _ValidatedRow,
 )
 from dobs.application.ports.llm_backend import LLMBackendPort
+from dobs.domain.services.prompt_sanitizer import PromptSanitizer
+from dobs.domain.services.row_parser import RowParser
 from dobs.domain.value_objects.llm_role import LLMRole
 
 
@@ -55,7 +57,9 @@ _SAMPLE = (
 
 async def test_hybrid_lifts_rows_via_regex_and_classifies_via_llm():
     backend = _MockValidator()
-    handler = ExtractTransactionsHybridHandler(llm=backend)
+    handler = ExtractTransactionsHybridHandler(
+        llm=backend, sanitizer=PromptSanitizer(), row_parser=RowParser(),
+    )
     result = await handler(ExtractTransactionsHybridCommand(
         segment_text=_SAMPLE,
         period_start="2025-04-01",
@@ -69,7 +73,9 @@ async def test_hybrid_lifts_rows_via_regex_and_classifies_via_llm():
 
 async def test_hybrid_user_payload_is_compact_json():
     backend = _MockValidator()
-    handler = ExtractTransactionsHybridHandler(llm=backend)
+    handler = ExtractTransactionsHybridHandler(
+        llm=backend, sanitizer=PromptSanitizer(), row_parser=RowParser(),
+    )
     await handler(ExtractTransactionsHybridCommand(
         segment_text=_SAMPLE,
         period_start="2025-04-01",
@@ -98,7 +104,9 @@ async def test_hybrid_falls_back_when_regex_finds_nothing():
             return False
 
     backend = _FallbackBackend()
-    handler = ExtractTransactionsHybridHandler(llm=backend)
+    handler = ExtractTransactionsHybridHandler(
+        llm=backend, sanitizer=PromptSanitizer(), row_parser=RowParser(),
+    )
     result = await handler(ExtractTransactionsHybridCommand(
         segment_text="no dates here",
         period_start="2025-04-01",

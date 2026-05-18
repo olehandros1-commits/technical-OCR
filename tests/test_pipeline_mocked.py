@@ -150,12 +150,35 @@ class _NullVendorLookup:
 
 
 def _build_handler(llm, cache=None):
+    from dobs.application.services.chunking import TransactionChunker
+    from dobs.application.services.lessons_helpers import LessonsHelper
+    from dobs.application.services.segmenter import StatementSegmenter
+    from dobs.domain.services.anomaly_detector import AnomalyDetector
+    from dobs.domain.services.continuity_auditor import ContinuityAuditor
+    from dobs.domain.services.forensic_detector import ForensicAnomalyDetector
+    from dobs.domain.services.prompt_sanitizer import PromptSanitizer
+    from dobs.domain.services.reconcile import Reconciler
+    from dobs.domain.services.recurring_detector import RecurringDetector
+    from dobs.domain.services.row_parser import RowParser
+
     if cache is None:
         cache = MemoryStatementCache()
-    hybrid = ExtractTransactionsHybridHandler(llm=llm)
-    summary_h = ExtractSummaryHandler(llm=llm)
-    tx_h = ExtractTransactionsHandler(llm=llm, hybrid=hybrid)
-    repair_h = RepairStatementHandler(llm=llm)
+    sanitizer = PromptSanitizer()
+    reconciler = Reconciler()
+    row_parser = RowParser()
+    chunker = TransactionChunker()
+    lessons_helper = LessonsHelper()
+    hybrid = ExtractTransactionsHybridHandler(
+        llm=llm, sanitizer=sanitizer, row_parser=row_parser,
+    )
+    summary_h = ExtractSummaryHandler(llm=llm, sanitizer=sanitizer)
+    tx_h = ExtractTransactionsHandler(
+        llm=llm, hybrid=hybrid, sanitizer=sanitizer,
+        chunker=chunker, lessons_helper=lessons_helper, lessons=None,
+    )
+    repair_h = RepairStatementHandler(
+        llm=llm, sanitizer=sanitizer, reconciler=reconciler,
+    )
     enrich_h = EnrichTransactionsHandler(llm=llm)
     return ExtractStatementHandler(
         ocr=None,
@@ -170,6 +193,13 @@ def _build_handler(llm, cache=None):
         enrich_cmd=enrich_h,
         vendor=_NullVendorLookup(),
         llm=llm,
+        segmenter=StatementSegmenter(),
+        reconciler=reconciler,
+        anomaly_detector=AnomalyDetector(),
+        continuity_auditor=ContinuityAuditor(),
+        forensic_detector=ForensicAnomalyDetector(),
+        recurring_detector=RecurringDetector(),
+        lessons_helper=lessons_helper,
     )
 
 

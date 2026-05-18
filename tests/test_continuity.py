@@ -1,6 +1,12 @@
 import uuid
 
-from dobs.domain.services.continuity_auditor import audit_continuity
+from dobs.domain.services.continuity_auditor import ContinuityAuditor
+
+_auditor = ContinuityAuditor()
+
+
+async def audit_continuity(*args, **kwargs):
+    return await _auditor.audit(*args, **kwargs)
 from dobs.domain.entities.statement import Statement
 from dobs.domain.value_objects.account import Account
 from dobs.domain.value_objects.period import Period

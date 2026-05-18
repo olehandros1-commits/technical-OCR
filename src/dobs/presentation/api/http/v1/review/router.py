@@ -1,14 +1,16 @@
+from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
-from dobs.application.commands.review.record_review import RecordReviewCommand
-from dobs.application.queries.explain_anomaly import ExplainAnomalyQuery
-from dobs.application.queries.get_reviews import GetReviewsQuery
+from dobs.application.commands.review.record_review import RecordReviewCommand, RecordReviewHandler
+from dobs.application.queries.explain_anomaly import ExplainAnomalyHandler, ExplainAnomalyQuery
+from dobs.application.queries.get_reviews import GetReviewsHandler, GetReviewsQuery
 from dobs.presentation.api.http.middleware.api_key import api_key_dependency
 
 router = APIRouter(
     prefix="/api/v1/reviews",
     tags=["reviews"],
+    route_class=DishkaRoute,
     dependencies=[Depends(api_key_dependency)],
 )
 
@@ -27,22 +29,10 @@ class ExplainAnomalyRequest(BaseModel):
     context_transactions: list[dict] | None = None
 
 
-def get_record_review_handler():
-    raise NotImplementedError("Composition root must wire RecordReviewHandler via dependency_overrides")
-
-
-def get_reviews_handler():
-    raise NotImplementedError("Composition root must wire GetReviewsHandler via dependency_overrides")
-
-
-def get_explain_handler():
-    raise NotImplementedError("Composition root must wire ExplainAnomalyHandler via dependency_overrides")
-
-
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def record_review(
     body: RecordReviewRequest,
-    handler=Depends(get_record_review_handler),
+    handler: FromDishka[RecordReviewHandler],
 ) -> dict:
     await handler(RecordReviewCommand(
         statement_key=body.statement_key,
@@ -56,7 +46,7 @@ async def record_review(
 @router.get("/{key}")
 async def get_reviews(
     key: str,
-    handler=Depends(get_reviews_handler),
+    handler: FromDishka[GetReviewsHandler],
 ) -> dict:
     result = await handler(GetReviewsQuery(statement_key=key))
     return {"decisions": result}
@@ -65,7 +55,7 @@ async def get_reviews(
 @router.post("/explain", status_code=status.HTTP_200_OK)
 async def explain_anomaly(
     body: ExplainAnomalyRequest,
-    handler=Depends(get_explain_handler),
+    handler: FromDishka[ExplainAnomalyHandler],
 ) -> dict:
     result = await handler(ExplainAnomalyQuery(
         anomaly=body.anomaly,

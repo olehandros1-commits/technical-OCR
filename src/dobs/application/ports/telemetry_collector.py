@@ -1,5 +1,5 @@
 from __future__ import annotations
-from abc import abstractmethod
+
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -19,10 +19,5 @@ class CallStats:
 
 
 class TelemetryCollectorPort(Protocol):
-    @abstractmethod
-    def record(self, stats: CallStats) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    def summary(self) -> dict:
-        raise NotImplementedError
+    def record(self, stats: CallStats) -> None: ...
+    def summary(self) -> dict: ...

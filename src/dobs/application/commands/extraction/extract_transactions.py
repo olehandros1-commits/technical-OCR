@@ -13,9 +13,10 @@ from dobs.application.commands.extraction.extract_transactions_hybrid import (
 )
 from dobs.application.ports.lessons_store import LessonsStorePort
 from dobs.application.ports.llm_backend import LLMBackendPort
-from dobs.application.services.chunking import chunk_segment_by_date_ranges, merge_chunks
+from dobs.application.services.chunking import TransactionChunker
+from dobs.application.services.lessons_helpers import LessonsHelper
 from dobs.domain.prompts import TRANSACTIONS_SYSTEM
-from dobs.domain.services.prompt_sanitizer import safe_wrap
+from dobs.domain.services.prompt_sanitizer import PromptSanitizer
 from dobs.domain.value_objects.llm_role import LLMRole
 from dobs.domain.value_objects.skipped_row import SkippedRow
 from dobs.domain.value_objects.transaction import Transaction
@@ -37,19 +38,24 @@ class ExtractTransactionsHandler:
         *,
         llm: LLMBackendPort,
         hybrid: ExtractTransactionsHybridHandler,
+        sanitizer: PromptSanitizer,
+        chunker: TransactionChunker,
+        lessons_helper: LessonsHelper,
         lessons: LessonsStorePort | None = None,
     ) -> None:
         self._llm = llm
         self._hybrid = hybrid
+        self._sanitizer = sanitizer
+        self._chunker = chunker
+        self._lessons_helper = lessons_helper
         self._lessons = lessons
 
     async def _augmented_system(self) -> str:
         if self._lessons is None:
             return TRANSACTIONS_SYSTEM
         try:
-            from dobs.application.services.lessons_helpers import lessons_block
             hints = await self._lessons.top_hints(limit=5)
-            return TRANSACTIONS_SYSTEM + lessons_block(hints)
+            return TRANSACTIONS_SYSTEM + self._lessons_helper.build_prompt_block(hints)
         except Exception:
             return TRANSACTIONS_SYSTEM
 
@@ -61,7 +67,7 @@ class ExtractTransactionsHandler:
         extra_hint: str = "",
     ) -> _TransactionsResult:
         system = await self._augmented_system()
-        wrapped, _ = safe_wrap(segment_text)
+        wrapped, _ = self._sanitizer.safe_wrap(segment_text)
         user = (
             f"Statement period: {period_start} to {period_end}\n"
             + (extra_hint + "\n\n" if extra_hint else "")
@@ -98,7 +104,7 @@ class ExtractTransactionsHandler:
             )
 
         chunks = await asyncio.to_thread(
-            chunk_segment_by_date_ranges,
+            self._chunker.chunk_by_date_ranges,
             command.segment_text,
             command.period_start,
             command.period_end,
@@ -121,6 +127,6 @@ class ExtractTransactionsHandler:
                 )
 
         results = await asyncio.gather(*(_run_chunk(c) for c in chunks))
-        merged = merge_chunks(r.transactions for r in results)
+        merged = self._chunker.merge(r.transactions for r in results)
         skipped = [s for r in results for s in r.skipped_rows]
         return _TransactionsResult(transactions=merged, skipped_rows=skipped)

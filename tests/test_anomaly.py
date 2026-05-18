@@ -1,5 +1,11 @@
-from dobs.domain.services.anomaly_detector import detect_anomalies
+from dobs.domain.services.anomaly_detector import AnomalyDetector
 from dobs.domain.value_objects.transaction import Transaction
+
+_detector = AnomalyDetector()
+
+
+async def detect_anomalies(*args, **kwargs):
+    return await _detector.detect(*args, **kwargs)
 
 
 def _t(date_, amount, side="deposit", **kw):

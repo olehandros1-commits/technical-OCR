@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict, Field
 
 from dobs.application.ports.llm_backend import LLMBackendPort
-from dobs.domain.services.prompt_sanitizer import safe_wrap
-from dobs.domain.services.row_parser import RawRow, parse_rows, filter_transaction_rows
+from dobs.domain.services.prompt_sanitizer import PromptSanitizer
+from dobs.domain.services.row_parser import RawRow, RowParser
 from dobs.domain.value_objects.llm_role import LLMRole
 from dobs.domain.value_objects.skipped_row import SkippedRow
 from dobs.domain.value_objects.transaction import Transaction
@@ -84,8 +84,12 @@ class ExtractTransactionsHybridHandler:
         /,
         *,
         llm: LLMBackendPort,
+        sanitizer: PromptSanitizer,
+        row_parser: RowParser,
     ) -> None:
         self._llm = llm
+        self._sanitizer = sanitizer
+        self._row_parser = row_parser
 
     async def _single_call(
         self,
@@ -95,7 +99,7 @@ class ExtractTransactionsHybridHandler:
         extra_hint: str = "",
     ) -> _TransactionsResult:
         from dobs.domain.prompts import TRANSACTIONS_SYSTEM
-        wrapped, _ = safe_wrap(segment_text)
+        wrapped, _ = self._sanitizer.safe_wrap(segment_text)
         user = (
             f"Statement period: {period_start} to {period_end}\n"
             + (extra_hint + "\n\n" if extra_hint else "")
@@ -117,9 +121,9 @@ class ExtractTransactionsHybridHandler:
         command: ExtractTransactionsHybridCommand,
     ) -> _TransactionsResult:
         raw_rows = await asyncio.to_thread(
-            parse_rows, command.segment_text, command.period_start
+            self._row_parser.parse, command.segment_text, command.period_start
         )
-        candidates = await asyncio.to_thread(filter_transaction_rows, raw_rows)
+        candidates = await asyncio.to_thread(self._row_parser.filter_transactions, raw_rows)
 
         if not candidates:
             return await self._single_call(

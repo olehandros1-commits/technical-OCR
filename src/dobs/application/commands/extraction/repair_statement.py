@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from dobs.application.commands.extraction.extract_transactions_hybrid import _TransactionsResult
 from dobs.application.ports.llm_backend import LLMBackendPort
 from dobs.domain.prompts import REPAIR_SYSTEM
-from dobs.domain.services.prompt_sanitizer import safe_wrap
-from dobs.domain.services.reconcile import reconcile
+from dobs.domain.services.prompt_sanitizer import PromptSanitizer
+from dobs.domain.services.reconcile import Reconciler
 from dobs.domain.value_objects.account import Account
 from dobs.domain.value_objects.llm_role import LLMRole
 from dobs.domain.value_objects.reconciliation import ReconciliationResult
@@ -33,6 +33,7 @@ def _build_repair_user(
     summary: Summary,
     prev_transactions: list[Transaction],
     recon: ReconciliationResult,
+    sanitizer: PromptSanitizer,
 ) -> str:
     return (
         "RECONCILIATION FAILED. Re-extract the transactions list as a JSON "
@@ -58,7 +59,7 @@ def _build_repair_user(
         f"# Previous transactions ({len(prev_transactions)} rows)\n"
         f"{json.dumps([{'date': t.date, 'description': t.description, 'deposit': t.deposit, 'withdrawal': t.withdrawal} for t in prev_transactions], indent=2)}\n\n"
         "# Full statement text (wrapped in DOCUMENT_TEXT fences)\n"
-        f"{safe_wrap(segment_text)[0]}\n\n"
+        f"{sanitizer.safe_wrap(segment_text)[0]}\n\n"
         "Return the FULL CORRECTED transactions list as a JSON object."
     )
 
@@ -79,8 +80,12 @@ class RepairStatementHandler:
         /,
         *,
         llm: LLMBackendPort,
+        sanitizer: PromptSanitizer,
+        reconciler: Reconciler,
     ) -> None:
         self._llm = llm
+        self._sanitizer = sanitizer
+        self._reconciler = reconciler
 
     async def _repair_once(
         self,
@@ -92,7 +97,8 @@ class RepairStatementHandler:
         recon: ReconciliationResult,
     ) -> _TransactionsResult:
         user = _build_repair_user(
-            segment_text, period_start, period_end, summary, prev_transactions, recon
+            segment_text, period_start, period_end, summary,
+            prev_transactions, recon, self._sanitizer,
         )
         return await self._llm.call_structured(
             system=REPAIR_SYSTEM,
@@ -137,7 +143,7 @@ class RepairStatementHandler:
             except Exception:
                 break
 
-            recon = await reconcile(command.summary, current)
+            recon = await self._reconciler.reconcile(command.summary, current)
             history.append(recon)
             new_error = _total_error(recon)
 

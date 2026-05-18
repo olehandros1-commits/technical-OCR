@@ -1,6 +1,20 @@
 from datetime import date, timedelta
 
-from dobs.domain.services.recurring_detector import detect_recurring, _normalise, _cadence_label
+from dobs.domain.services.recurring_detector import RecurringDetector
+
+_recurring = RecurringDetector()
+
+
+async def detect_recurring(*args, **kwargs):
+    return await _recurring.detect(*args, **kwargs)
+
+
+def _normalise(*args, **kwargs):
+    return _recurring._normalise(*args, **kwargs)
+
+
+def _cadence_label(*args, **kwargs):
+    return _recurring._cadence_label(*args, **kwargs)
 from dobs.domain.value_objects.transaction import Transaction
 
 

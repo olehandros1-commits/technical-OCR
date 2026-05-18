@@ -1,5 +1,5 @@
 from __future__ import annotations
-from abc import abstractmethod
+
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -14,6 +14,4 @@ class VendorInfo:
 
 
 class VendorLookupPort(Protocol):
-    @abstractmethod
-    async def lookup(self, raw: str) -> VendorInfo:
-        raise NotImplementedError
+    async def lookup(self, raw: str) -> VendorInfo: ...

@@ -29,15 +29,15 @@ from dobs.application.ports.lessons_store import LessonsStorePort
 from dobs.application.ports.ocr_engine import OcrEnginePort
 from dobs.application.ports.telemetry_collector import TelemetryCollectorPort
 from dobs.application.ports.vendor_lookup import VendorLookupPort
-from dobs.application.services.segmenter import StatementSegment, split_statements, split_statements_llm
-from dobs.application.services.lessons_helpers import diagnose_repair
+from dobs.application.services.segmenter import StatementSegment, StatementSegmenter
+from dobs.application.services.lessons_helpers import LessonsHelper
 from dobs.domain.entities.audit_record import AuditRecord
 from dobs.domain.entities.statement import Statement
-from dobs.domain.services.anomaly_detector import detect_anomalies
-from dobs.domain.services.continuity_auditor import audit_continuity
-from dobs.domain.services.forensic_detector import detect_forensic_anomalies
-from dobs.domain.services.reconcile import reconcile
-from dobs.domain.services.recurring_detector import detect_recurring
+from dobs.domain.services.anomaly_detector import AnomalyDetector
+from dobs.domain.services.continuity_auditor import ContinuityAuditor
+from dobs.domain.services.forensic_detector import ForensicAnomalyDetector
+from dobs.domain.services.reconcile import Reconciler
+from dobs.domain.services.recurring_detector import RecurringDetector
 from dobs.application.ports.llm_backend import LLMBackendPort
 
 
@@ -80,6 +80,13 @@ class ExtractStatementHandler:
         enrich_cmd: EnrichTransactionsHandler,
         vendor: VendorLookupPort,
         llm: LLMBackendPort,
+        segmenter: StatementSegmenter,
+        reconciler: Reconciler,
+        anomaly_detector: AnomalyDetector,
+        continuity_auditor: ContinuityAuditor,
+        forensic_detector: ForensicAnomalyDetector,
+        recurring_detector: RecurringDetector,
+        lessons_helper: LessonsHelper,
     ) -> None:
         self._ocr = ocr
         self._cache = cache
@@ -93,6 +100,13 @@ class ExtractStatementHandler:
         self._enrich_cmd = enrich_cmd
         self._vendor = vendor
         self._llm = llm
+        self._segmenter = segmenter
+        self._reconciler = reconciler
+        self._anomaly_detector = anomaly_detector
+        self._continuity_auditor = continuity_auditor
+        self._forensic_detector = forensic_detector
+        self._recurring_detector = recurring_detector
+        self._lessons_helper = lessons_helper
 
     async def _process_segment(
         self,
@@ -146,7 +160,7 @@ class ExtractStatementHandler:
             "skipped": len(tx_result.skipped_rows),
         })
 
-        initial_recon = await reconcile(summary_vo, tx_result.transactions)
+        initial_recon = await self._reconciler.reconcile(summary_vo, tx_result.transactions)
 
         final_txns = list(tx_result.transactions)
         final_recon = initial_recon
@@ -168,7 +182,7 @@ class ExtractStatementHandler:
 
         if final_recon.ok and history and not history[0].ok:
             try:
-                lessons = diagnose_repair(
+                lessons = self._lessons_helper.diagnose_repair(
                     history[0], final_recon, tx_result.transactions, final_txns
                 )
                 for pattern_hash, hint in lessons:
@@ -194,10 +208,10 @@ class ExtractStatementHandler:
             except Exception:
                 pass
 
-        anomalies = await detect_anomalies(
+        anomalies = await self._anomaly_detector.detect(
             final_txns, account.period.start, account.period.end
         )
-        forensic = await detect_forensic_anomalies(final_txns)
+        forensic = await self._forensic_detector.detect(final_txns)
         anomalies = list(anomalies) + list(forensic)
 
         if anomalies:
@@ -207,7 +221,7 @@ class ExtractStatementHandler:
             })
 
         try:
-            recurring = await detect_recurring(final_txns)
+            recurring = await self._recurring_detector.detect(final_txns)
         except Exception:
             recurring = []
 
@@ -259,12 +273,12 @@ class ExtractStatementHandler:
 
         await self._event_bus.emit("ingest_done", {"chars": len(text)})
 
-        segments = await split_statements(text)
+        segments = await self._segmenter.split(text)
         if not segments:
             await self._event_bus.emit("segment_fallback", {
                 "reason": "regex found no boundaries, asking LLM"
             })
-            segments = await split_statements_llm(text, self._llm)
+            segments = await self._segmenter.split_with_llm(text, self._llm)
 
         await self._event_bus.emit("segment_done_all", {
             "statement_count": len(segments),
@@ -283,7 +297,7 @@ class ExtractStatementHandler:
         statements: list[Statement] = [s for s in results_maybe if s is not None]
 
         if len(statements) >= 2:
-            continuity_issues = await audit_continuity(statements)
+            continuity_issues = await self._continuity_auditor.audit(statements)
             if continuity_issues:
                 await self._event_bus.emit("continuity_issues", {
                     "count": len(continuity_issues)

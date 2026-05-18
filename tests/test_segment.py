@@ -1,4 +1,10 @@
-from dobs.application.services.segmenter import split_statements
+from dobs.application.services.segmenter import StatementSegmenter
+
+_segmenter = StatementSegmenter()
+
+
+async def split_statements(*args, **kwargs):
+    return await _segmenter.split(*args, **kwargs)
 
 
 SAMPLE = """

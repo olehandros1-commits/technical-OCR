@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from dobs.application.services.cost_estimate import CostEstimate, estimate
+from dobs.application.services.cost_estimate import CostEstimate, CostEstimator
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -15,11 +15,11 @@ class EstimateCostQuery:
 
 
 class EstimateCostHandler:
-    def __init__(self, /) -> None:
-        pass
+    def __init__(self, /, *, estimator: CostEstimator) -> None:
+        self._estimator = estimator
 
     async def __call__(self, query: EstimateCostQuery) -> CostEstimate:
-        return estimate(
+        return self._estimator.estimate(
             query.statements,
             enrich=query.enrich,
             backend=query.backend,
