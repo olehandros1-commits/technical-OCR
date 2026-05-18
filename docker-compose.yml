@@ -1,0 +1,69 @@
+# One-shot dev deploy: API + React + (optional) Ollama for local LLM.
+#
+# Usage:
+#   echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+#   docker compose up --build
+#
+# Then:
+#   * Web UI:           http://localhost
+#   * API direct:       http://localhost:8000
+#   * OpenAPI docs:     http://localhost:8000/docs
+#
+# To use the local Ollama backend, also set
+#   EXTRACTOR_BACKEND=ollama
+# in the api environment block below, and `docker compose --profile local up`.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - EXTRACTOR_CORS_ALLOW=*
+      # Backend / tier defaults. Override via .env or shell env to flip
+      # between cloud (anthropic) and local (ollama on host).
+      - EXTRACTOR_BACKEND=${EXTRACTOR_BACKEND:-anthropic}
+      - EXTRACTOR_TIER=${EXTRACTOR_TIER:-}
+      # Zero-cost demo replay: stream pre-recorded events from
+      # out/ixonia_extraction.json. Flip to "1" before a live demo.
+      - EXTRACTOR_DEMO_REPLAY=${EXTRACTOR_DEMO_REPLAY:-0}
+      # Reach the user's host Ollama from inside Docker (Windows / Mac
+      # Docker Desktop maps host.docker.internal to the host).
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      # Override Ollama model mapping if you only have a subset pulled.
+      # We default CHEAP to 14b too so a single qwen2.5:14b pull is enough.
+      - OLLAMA_MODEL_CHEAP=${OLLAMA_MODEL_CHEAP:-qwen2.5:14b}
+      - OLLAMA_MODEL_EXTRACT=${OLLAMA_MODEL_EXTRACT:-qwen2.5:14b}
+      - OLLAMA_MODEL_REPAIR=${OLLAMA_MODEL_REPAIR:-qwen2.5:14b}
+      # Uncomment to require an API key on every request:
+      # - EXTRACTOR_API_KEYS=demo-key-rotate-me
+    extra_hosts:
+      # Linux engines don't resolve host.docker.internal by default;
+      # this maps it to the gateway so the api can still reach the host.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./out:/app/out
+
+  ui:
+    build:
+      context: ./frontend
+      dockerfile: ../Dockerfile.frontend
+    # Use a high port so Windows doesn't fight us for :80.
+    ports:
+      - "8080:80"
+    depends_on: [api]
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    # First-time setup: `docker compose exec ollama ollama pull qwen2.5:14b`
+
+volumes:
+  ollama-models:

@@ -1,0 +1,72 @@
+// Internal gRPC contract for the bank-statement extractor.
+//
+// Why gRPC alongside REST:
+//   * REST + SSE is the right shape for the browser UI.
+//   * gRPC is the right shape for service-to-service: typed schema,
+//     bidirectional streams, smaller wire format, native HTTP/2
+//     multiplexing.
+//   * Same business logic; the gRPC server is a thin adapter over the
+//     pipeline.
+//
+// Regenerate with:
+//   python -m grpc_tools.protoc -Isrc/extractor/grpc \
+//       --python_out=src/extractor/grpc \
+//       --grpc_python_out=src/extractor/grpc \
+//       src/extractor/grpc/extractor.proto
+
+syntax = "proto3";
+
+package bse.v1;
+
+service ExtractorService {
+  // One-shot extraction: send file bytes, receive a JSON-encoded list of
+  // results. For long-running jobs prefer StreamExtract below.
+  rpc Extract (ExtractRequest) returns (ExtractResponse);
+
+  // Streaming extraction: server emits one ProgressEvent per pipeline
+  // event (ingest -> segment -> per-statement extract -> reconcile),
+  // finishing with a final Result event. Mirrors the REST /jobs SSE
+  // stream over a strongly-typed channel.
+  rpc StreamExtract (ExtractRequest) returns (stream ProgressEvent);
+
+  // Health probe. Returns the same shape as the REST /health endpoint.
+  rpc Health (HealthRequest) returns (HealthResponse);
+}
+
+message ExtractRequest {
+  // Original filename so the server can pick the right ingest path.
+  string filename       = 1;
+  // Raw bytes of the PDF / image / xlsx / etc.
+  bytes  payload        = 2;
+  // Optional pre-OCR'd text; takes precedence over OCR when present.
+  bytes  txt_payload    = 3;
+
+  string backend        = 4; // "anthropic" | "ollama"
+  string ocr_mode       = 5; // "auto" | "vision" | "tesseract" | "skip"
+  bool   enrich         = 6;
+  int32  parallel       = 7;
+}
+
+message ExtractResponse {
+  // JSON-encoded list of statement results (the same shape as the REST
+  // POST /extract response). Keeping this as a JSON string avoids a 600-
+  // line proto for a schema that changes faster than the wire contract.
+  string results_json   = 1;
+  string telemetry_json = 2;
+}
+
+message ProgressEvent {
+  string event_name     = 1;   // "ingest_done", "summary_done", ...
+  string data_json      = 2;   // event payload as JSON
+  double ts_unix        = 3;
+  bool   is_terminal    = 4;   // last event in the stream
+  // Populated only on the terminal event.
+  ExtractResponse final = 5;
+}
+
+message HealthRequest {}
+message HealthResponse {
+  bool   ok      = 1;
+  string service = 2;
+  string version = 3;
+}

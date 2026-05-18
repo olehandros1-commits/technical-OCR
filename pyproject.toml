@@ -1,0 +1,44 @@
+[project]
+name = "bank-statement-extractor"
+version = "0.1.0"
+description = "Bank statement extraction agent with deterministic reconciliation"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40.0",
+    "pydantic>=2.6.0",
+    "click>=8.1.7",
+    "pdfplumber>=0.11.0",
+    "pikepdf>=8.0.0",
+    "rich>=13.7.0",
+    "python-dotenv>=1.0.0",
+    "openpyxl>=3.1.0",
+    "fastapi>=0.111.0",
+    "uvicorn>=0.30.0",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+ocr     = ["pytesseract>=0.3.10", "pdf2image>=1.17.0", "pillow>=10.0.0"]
+ollama  = ["ollama>=0.4.0"]
+redis   = ["redis>=5.0.0"]
+grpc    = ["grpcio>=1.62.0", "grpcio-tools>=1.62.0"]
+otel    = [
+    "opentelemetry-api>=1.25.0",
+    "opentelemetry-sdk>=1.25.0",
+    "opentelemetry-exporter-otlp>=1.25.0",
+]
+streamlit = ["streamlit>=1.36.0", "pandas>=2.2.0"]
+dev     = ["pytest>=8.0.0"]
+all     = [
+    "bank-statement-extractor[ocr,ollama,redis,grpc,otel,streamlit]",
+]
+
+[project.scripts]
+extract-statement = "extractor.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
