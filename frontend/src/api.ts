@@ -1,6 +1,3 @@
-// Thin client for the FastAPI backend at /extract /jobs /reviews.
-// Uses the native fetch + EventSource APIs to keep deps minimal.
-
 import type {
   Backend,
   Decision,
@@ -13,6 +10,7 @@ import type {
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+const V1 = `${BASE}/api/v1`;
 
 export interface ExtractOptions {
   pdf: File;
@@ -25,7 +23,7 @@ export interface ExtractOptions {
 }
 
 export async function listTiers(): Promise<TierInfo[]> {
-  const r = await fetch(`${BASE}/tiers`);
+  const r = await fetch(`${V1}/telemetry/tiers`);
   if (!r.ok) return [];
   const j = await r.json();
   return j.tiers ?? [];
@@ -35,9 +33,6 @@ function _formData(opts: ExtractOptions): FormData {
   const fd = new FormData();
   fd.append("pdf", opts.pdf);
   if (opts.txt) fd.append("txt", opts.txt);
-  // When a tier is set, omit `backend` entirely so the server uses the
-  // tier's backend unambiguously. Sending the stale form default would
-  // collide with the tier selection (cloud vs local mix-up).
   if (opts.tier) {
     fd.append("tier", opts.tier);
   } else {
@@ -49,11 +44,10 @@ function _formData(opts: ExtractOptions): FormData {
   return fd;
 }
 
-/** Synchronous extraction (best for small statements). */
 export async function extractBlocking(
   opts: ExtractOptions,
 ): Promise<{ results: StatementResult[]; telemetry: Telemetry }> {
-  const r = await fetch(`${BASE}/extract`, {
+  const r = await fetch(`${V1}/extraction/extract`, {
     method: "POST",
     body: _formData(opts),
   });
@@ -61,9 +55,8 @@ export async function extractBlocking(
   return r.json();
 }
 
-/** Start an async job. Returns job_id you stream via streamJobEvents. */
 export async function createJob(opts: ExtractOptions): Promise<string> {
-  const r = await fetch(`${BASE}/jobs`, {
+  const r = await fetch(`${V1}/extraction/jobs`, {
     method: "POST",
     body: _formData(opts),
   });
@@ -72,35 +65,26 @@ export async function createJob(opts: ExtractOptions): Promise<string> {
   return j.job_id as string;
 }
 
-/** Read final result of an async job. Returns null while still running. */
 export async function getJobResult(
   jobId: string,
 ): Promise<{ results: StatementResult[]; telemetry: Telemetry } | null> {
-  const r = await fetch(`${BASE}/jobs/${jobId}`);
-  if (r.status === 202) return null; // still running
+  const r = await fetch(`${V1}/extraction/jobs/${jobId}`);
+  if (r.status === 202) return null;
   if (!r.ok) throw new Error(`getJob failed: ${r.status}`);
   return r.json();
 }
 
-/** Stream pipeline events for a job via Server-Sent Events.
- *
- * The server emits events with both a named directive AND a generic
- * 'message' payload. We listen on `onmessage` as a catch-all so any new
- * event types added on the backend show up automatically without a
- * frontend code change.
- */
 export function streamJobEvents(
   jobId: string,
   onEvent: (ev: PipelineEvent) => void,
   onDone: () => void,
   onError: (e: Event) => void,
 ): () => void {
-  const es = new EventSource(`${BASE}/jobs/${jobId}/events`);
+  const es = new EventSource(`${V1}/extraction/jobs/${jobId}/events`);
 
   es.onmessage = (e) => {
     try {
       const wire = JSON.parse(e.data);
-      // Wire payload: { event, data, ts }
       onEvent({
         event: wire.event ?? "message",
         data: wire.data ?? {},
@@ -115,7 +99,6 @@ export function streamJobEvents(
     }
   };
 
-  // Also handle the named 'done' event in case browsers prefer it.
   es.addEventListener("done", () => {
     onDone();
     es.close();
@@ -124,9 +107,8 @@ export function streamJobEvents(
   return () => es.close();
 }
 
-/** Trigger an Excel-workbook download for the same inputs. */
 export async function downloadXlsx(opts: ExtractOptions, filename = "statements.xlsx"): Promise<void> {
-  const r = await fetch(`${BASE}/export/xlsx`, {
+  const r = await fetch(`${V1}/extraction/export/xlsx`, {
     method: "POST",
     body: _formData(opts),
   });
@@ -143,14 +125,12 @@ export interface ExplainResult {
   suggested_action: string;
 }
 
-/** Ask the backend's CHEAP-tier LLM to explain a flagged anomaly in
- *  plain English. Returns 1-3 sentences + one suggested action. */
 export async function explainAnomaly(
   anomaly: unknown,
   transaction: unknown | null = null,
   context: unknown[] = [],
 ): Promise<ExplainResult> {
-  const r = await fetch(`${BASE}/explain`, {
+  const r = await fetch(`${V1}/reviews/explain`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -175,7 +155,7 @@ export interface ExtractionDiff {
 }
 
 export async function diffExtractions(a: unknown, b: unknown): Promise<ExtractionDiff> {
-  const r = await fetch(`${BASE}/diff`, {
+  const r = await fetch(`${V1}/diff`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ a, b }),
@@ -191,7 +171,7 @@ export async function postReview(payload: {
   reviewer?: string;
   note?: string;
 }): Promise<{ id: number; status: string }> {
-  const r = await fetch(`${BASE}/reviews`, {
+  const r = await fetch(`${V1}/reviews`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
