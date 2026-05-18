@@ -1,5 +1,5 @@
 [project]
-name = "bank-statement-extractor"
+name = "dobs"
 version = "0.1.0"
 description = "Bank statement extraction agent with deterministic reconciliation"
 requires-python = ">=3.11"
@@ -23,20 +23,19 @@ dependencies = [
 ocr     = ["pytesseract>=0.3.10", "pdf2image>=1.17.0", "pillow>=10.0.0"]
 ollama  = ["ollama>=0.4.0"]
 redis   = ["redis>=5.0.0"]
-grpc    = ["grpcio>=1.62.0", "grpcio-tools>=1.62.0"]
 otel    = [
     "opentelemetry-api>=1.25.0",
     "opentelemetry-sdk>=1.25.0",
     "opentelemetry-exporter-otlp>=1.25.0",
 ]
-streamlit = ["streamlit>=1.36.0", "pandas>=2.2.0"]
-dev     = ["pytest>=8.0.0"]
+streamlit = ["streamlit>=1.36.0", "pandas>=2.2.0", "requests>=2.32.0"]
+dev     = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0"]
 all     = [
-    "bank-statement-extractor[ocr,ollama,redis,grpc,otel,streamlit]",
+    "dobs[ocr,ollama,redis,otel,streamlit]",
 ]
 
 [project.scripts]
-extract-statement = "extractor.cli:main"
+dobs = "dobs.presentation.cli.extract:main"
 dobs-ui = "dobs.presentation.streamlit.app:run"
 
 [build-system]

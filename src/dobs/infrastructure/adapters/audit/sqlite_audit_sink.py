@@ -44,7 +44,7 @@ _COLS = [
 
 def _prompts_hash() -> str:
     try:
-        from extractor.prompts import SUMMARY_SYSTEM, TRANSACTIONS_SYSTEM, REPAIR_SYSTEM
+        from dobs.domain.prompts import SUMMARY_SYSTEM, TRANSACTIONS_SYSTEM, REPAIR_SYSTEM
         h = hashlib.sha256()
         for p in (SUMMARY_SYSTEM, TRANSACTIONS_SYSTEM, REPAIR_SYSTEM):
             h.update(p.encode("utf-8"))
