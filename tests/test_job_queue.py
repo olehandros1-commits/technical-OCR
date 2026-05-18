@@ -51,7 +51,7 @@ async def test_store_event_bus_publish_emits():
     store = MemoryJobStore()
     bus = StoreEventBus(store=store, job_id="job4")
     await bus.publish("tier_active", {"tier": "balanced"})
-    await bus.emit("done", {})
+    await bus.publish("done", {})
 
     received = []
     async for event in store.read_events("job4"):

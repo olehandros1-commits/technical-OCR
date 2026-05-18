@@ -23,7 +23,7 @@ class RecordReviewHandler:
         self._review_store = review_store
 
     async def __call__(self, command: RecordReviewCommand) -> None:
-        await self._review_store.record_decision(
+        await self._review_store.record(
             statement_key=command.statement_key,
             tx_index=command.tx_index,
             decision=command.decision,

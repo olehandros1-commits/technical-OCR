@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from dishka import make_async_container
 from dishka.integrations.fastapi import setup_dishka
 from fastapi import FastAPI
 
+from dobs.infrastructure.adapters.jobs.background_runner import BackgroundJobRunner
+from dobs.main.config.settings import get_settings
 from dobs.main.di import build_providers
+from dobs.main.logging_setup import configure_logging, get_logger
 from dobs.presentation.api.http.common.exc_handlers import map_exc_handlers
 from dobs.presentation.api.http.middleware.cors import configured_cors
+from dobs.presentation.api.http.middleware.request_id import RequestIdMiddleware
 from dobs.presentation.api.http.middleware.tenant import TenantMiddleware
 from dobs.presentation.api.http.v1.audit.router import router as audit_router
 from dobs.presentation.api.http.v1.cache.router import router as cache_router
@@ -16,8 +22,25 @@ from dobs.presentation.api.http.v1.health.router import router as health_router
 from dobs.presentation.api.http.v1.review.router import router as review_router
 from dobs.presentation.api.http.v1.telemetry.router import router as telemetry_router
 
+log = get_logger(__name__)
+
 
 def create_app() -> FastAPI:
+    settings = get_settings()
+    configure_logging(level=settings.log_level, json_output=settings.log_json)
+
+    container = make_async_container(*build_providers())
+
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI):
+        log.info("api startup")
+        yield
+        async with container() as scope:
+            runner = await scope.get(BackgroundJobRunner)
+            await runner.shutdown()
+        await container.close()
+        log.info("api shutdown")
+
     app = FastAPI(
         title="dobs — Bank Statement Extractor",
         version="1.0.0",
@@ -26,6 +49,7 @@ def create_app() -> FastAPI:
             "Hybrid deterministic + LLM pipeline with anomaly detection, "
             "HITL review, multi-tenant isolation, and async SSE job streaming."
         ),
+        lifespan=_lifespan,
     )
 
     app.include_router(health_router)
@@ -39,8 +63,7 @@ def create_app() -> FastAPI:
     map_exc_handlers(app)
     configured_cors(app)
     app.add_middleware(TenantMiddleware)
+    app.add_middleware(RequestIdMiddleware)
 
-    container = make_async_container(*build_providers())
     setup_dishka(container=container, app=app)
-
     return app

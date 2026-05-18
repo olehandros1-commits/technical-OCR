@@ -6,6 +6,9 @@ from dataclasses import dataclass
 
 from dobs.application.commands.extraction.extract_transactions_hybrid import _TransactionsResult
 from dobs.application.ports.llm_backend import LLMBackendPort
+from dobs.main.logging_setup import get_logger
+
+log = get_logger(__name__)
 from dobs.domain.prompts import REPAIR_SYSTEM
 from dobs.domain.services.prompt_sanitizer import PromptSanitizer
 from dobs.domain.services.reconcile import Reconciler
@@ -141,6 +144,7 @@ class RepairStatementHandler:
                 )
                 current = list(resp.transactions)
             except Exception:
+                log.warning("repair LLM call failed; returning best-so-far", exc_info=True)
                 break
 
             recon = await self._reconciler.reconcile(command.summary, current)

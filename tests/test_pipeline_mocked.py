@@ -117,9 +117,6 @@ class _BadThenGoodLLM(_MockLLM):
 
 
 class _NullEventBus:
-    async def emit(self, name, data):
-        pass
-
     async def publish(self, name, data):
         pass
 

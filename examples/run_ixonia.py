@@ -18,7 +18,8 @@ load_dotenv(ROOT / ".env")
 from dishka import make_async_container  # noqa: E402
 
 from dobs.application.commands.extraction.extract_statement import ExtractStatementCommand  # noqa: E402
-from dobs.main.di import _ReplayingExtractHandler, build_providers  # noqa: E402
+from dobs.infrastructure.adapters.replay.replaying_extract_handler import ReplayingExtractHandler  # noqa: E402
+from dobs.main.di import build_providers  # noqa: E402
 
 
 ETALON = [
@@ -59,7 +60,7 @@ async def _amain() -> int:
     t0 = time.time()
     try:
         async with container() as scope:
-            handler = await scope.get(_ReplayingExtractHandler)
+            handler = await scope.get(ReplayingExtractHandler)
             results = await handler(command)
     finally:
         await container.close()

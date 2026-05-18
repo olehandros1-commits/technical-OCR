@@ -1,27 +1,28 @@
 from __future__ import annotations
 
-import os
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class AppSettings:
-    def __init__(self) -> None:
-        self.anthropic_api_key: str | None = os.getenv("ANTHROPIC_API_KEY")
-        self.ollama_host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        self.backend: str | None = os.getenv("EXTRACTOR_BACKEND")
-        self.tier: str | None = os.getenv("EXTRACTOR_TIER")
-        self.demo_replay: bool = os.getenv("EXTRACTOR_DEMO_REPLAY", "0") in {"1", "true"}
-        self.cache_url: str | None = os.getenv("EXTRACTOR_CACHE_URL")
-        self.api_keys: str | None = os.getenv("EXTRACTOR_API_KEYS")
-        self.cors_allow: str | None = os.getenv("EXTRACTOR_CORS_ALLOW")
-        self.spend_cap_usd: float | None = (
-            float(os.getenv("EXTRACTOR_SPEND_CAP_USD"))
-            if os.getenv("EXTRACTOR_SPEND_CAP_USD")
-            else None
-        )
-        self.audit_log_db: str = os.getenv("AUDIT_LOG_DB", "out/audit.db")
-        self.review_db: str = os.getenv("REVIEW_DB", "out/reviews.db")
-        self.ocr_cache_db: str = os.getenv("OCR_CACHE_DB", "out/ocr_cache.db")
-        self.vendor_cache_db: str = os.getenv("VENDOR_CACHE_DB", "out/vendor_cache.db")
+class AppSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    ollama_host: str = Field(default="http://localhost:11434", alias="OLLAMA_HOST")
+    backend: str | None = Field(default=None, alias="EXTRACTOR_BACKEND")
+    tier: str | None = Field(default=None, alias="EXTRACTOR_TIER")
+    demo_replay: bool = Field(default=False, alias="EXTRACTOR_DEMO_REPLAY")
+    cache_url: str | None = Field(default=None, alias="EXTRACTOR_CACHE_URL")
+    api_keys: str | None = Field(default=None, alias="EXTRACTOR_API_KEYS")
+    cors_allow: str | None = Field(default=None, alias="EXTRACTOR_CORS_ALLOW")
+    spend_cap_usd: float | None = Field(default=None, alias="EXTRACTOR_SPEND_CAP_USD")
+    audit_log_db: str = Field(default="out/audit.db", alias="AUDIT_LOG_DB")
+    review_db: str = Field(default="out/reviews.db", alias="REVIEW_DB")
+    ocr_cache_db: str = Field(default="out/ocr_cache.db", alias="OCR_CACHE_DB")
+    vendor_cache_db: str = Field(default="out/vendor_cache.db", alias="VENDOR_CACHE_DB")
+    redis_url: str | None = Field(default=None, alias="REDIS_URL")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    log_json: bool = Field(default=False, alias="LOG_JSON")
 
 
 def get_settings() -> AppSettings:

@@ -3,16 +3,26 @@ from __future__ import annotations
 import threading
 
 from dobs.application.ports.telemetry_collector import CallStats, TelemetryCollectorPort
+from dobs.application.services.spend_guard import SpendGuard
 
 
 class CallStatsCollector(TelemetryCollectorPort):
-    def __init__(self, /) -> None:
+    def __init__(self, /, *, spend_guard: SpendGuard | None = None) -> None:
         self._calls: list[CallStats] = []
         self._lock = threading.Lock()
+        self._spend_guard = spend_guard
 
     def record(self, stats: CallStats) -> None:
         with self._lock:
             self._calls.append(stats)
+        if self._spend_guard is not None and stats.cost_usd > 0:
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._spend_guard.record(stats.cost_usd))
+            except RuntimeError:
+                pass
 
     def summary(self) -> dict:
         with self._lock:

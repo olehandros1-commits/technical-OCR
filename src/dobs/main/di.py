@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import NewType
 
 from dishka import Provider, Scope, provide
 
@@ -18,11 +19,13 @@ from dobs.application.commands.review.record_review import RecordReviewHandler
 from dobs.application.ports.audit_sink import AuditSinkPort
 from dobs.application.ports.cache import StatementCachePort
 from dobs.application.ports.event_bus import EventBusPort
+from dobs.application.ports.job_queue import JobStorePort
 from dobs.application.ports.lessons_store import LessonsStorePort
 from dobs.application.ports.llm_backend import LLMBackendPort
 from dobs.application.ports.ocr_engine import OcrEnginePort
 from dobs.application.ports.review_store import ReviewStorePort
 from dobs.application.ports.telemetry_collector import TelemetryCollectorPort
+from dobs.application.ports.vendor_enricher import VendorEnricherPort
 from dobs.application.ports.vendor_lookup import VendorLookupPort
 from dobs.application.queries.diff_extractions import DiffExtractionsHandler
 from dobs.application.queries.estimate_cost import EstimateCostHandler
@@ -36,6 +39,7 @@ from dobs.application.services.chunking import TransactionChunker
 from dobs.application.services.cost_estimate import CostEstimator
 from dobs.application.services.lessons_helpers import LessonsHelper
 from dobs.application.services.segmenter import StatementSegmenter
+from dobs.application.services.spend_guard import SpendGuard
 from dobs.domain.services.anomaly_detector import AnomalyDetector
 from dobs.domain.services.continuity_auditor import ContinuityAuditor
 from dobs.domain.services.forensic_detector import ForensicAnomalyDetector
@@ -45,7 +49,9 @@ from dobs.domain.services.recurring_detector import RecurringDetector
 from dobs.domain.services.row_parser import RowParser
 from dobs.infrastructure.adapters.audit.sqlite_audit_sink import AUDIT_SCHEMA, SqliteAuditSink
 from dobs.infrastructure.adapters.cache.resolver import open_cache
-from dobs.infrastructure.adapters.event_bus.asyncio_event_bus import AsyncioEventBus
+from dobs.infrastructure.adapters.event_bus.context_event_bus import ContextEventBus
+from dobs.infrastructure.adapters.jobs.background_runner import BackgroundJobRunner
+from dobs.infrastructure.adapters.jobs.memory_job_store import MemoryJobStore
 from dobs.infrastructure.adapters.lessons.sqlite_lessons_store import LESSONS_SCHEMA, SqliteLessonsStore
 from dobs.infrastructure.adapters.llm.anthropic_backend import AnthropicLLMBackend
 from dobs.infrastructure.adapters.ocr.composite_engine import CompositeOcrEngine
@@ -54,18 +60,18 @@ from dobs.infrastructure.adapters.ocr.tesseract_engine import (
     OCR_CACHE_SCHEMA, OcrCacheStore, TesseractOcrEngine,
 )
 from dobs.infrastructure.adapters.ocr.vision_engine import VisionOcrEngine
-from dobs.infrastructure.adapters.replay.demo_replay import DemoReplayPlayer, is_replay_enabled
+from dobs.infrastructure.adapters.replay.demo_replay import DemoReplayPlayer
+from dobs.infrastructure.adapters.replay.replaying_extract_handler import ReplayingExtractHandler
 from dobs.infrastructure.adapters.review.sqlite_review_store import REVIEW_SCHEMA, SqliteReviewStore
 from dobs.infrastructure.adapters.telemetry.call_stats_collector import CallStatsCollector
 from dobs.infrastructure.adapters.vendor.clearbit_lookup import (
     VENDOR_CACHE_SCHEMA, ClearbitVendorLookup, VendorCacheStore,
 )
 from dobs.infrastructure.adapters.vendor.composite_lookup import CompositeVendorLookup
+from dobs.infrastructure.adapters.vendor.enricher import VendorEnricher
 from dobs.infrastructure.adapters.vendor.seed_lookup import SeedVendorLookup
 from dobs.infrastructure.persistence.sqlite_session import SqliteSessionFactory
 from dobs.main.config.settings import AppSettings, get_settings
-
-from typing import NewType
 
 
 AuditSessions = NewType("AuditSessions", SqliteSessionFactory)
@@ -73,93 +79,6 @@ ReviewSessions = NewType("ReviewSessions", SqliteSessionFactory)
 LessonsSessions = NewType("LessonsSessions", SqliteSessionFactory)
 OcrCacheSessions = NewType("OcrCacheSessions", SqliteSessionFactory)
 VendorCacheSessions = NewType("VendorCacheSessions", SqliteSessionFactory)
-
-
-class _EventBusEmitAdapter:
-    def __init__(self, /, *, bus: AsyncioEventBus) -> None:
-        self._bus = bus
-
-    async def emit(self, event_name: str, data: dict) -> None:
-        await self._bus.publish(event_name, data)
-
-    async def publish(self, event_name: str, data: dict) -> None:
-        await self._bus.publish(event_name, data)
-
-
-class _VendorLookupWithEnrich:
-    def __init__(self, /, *, inner: CompositeVendorLookup) -> None:
-        self._inner = inner
-
-    async def lookup(self, raw: str):
-        return await self._inner.lookup(raw)
-
-    async def enrich_in_place(self, records: list[dict]) -> None:
-        for rec in records:
-            raw = rec.get("description") or ""
-            try:
-                info = await self._inner.lookup(raw)
-                if info.canonical_name:
-                    rec["vendor"] = info.canonical_name
-                if info.logo_url:
-                    rec["vendor_logo"] = info.logo_url
-            except Exception:
-                pass
-
-
-class _ReviewStoreAdapter:
-    def __init__(self, /, *, store: SqliteReviewStore) -> None:
-        self._store = store
-
-    async def record_decision(
-        self,
-        *,
-        statement_key: str,
-        tx_index: int,
-        decision: str,
-        reviewer: str | None = None,
-        note: str | None = None,
-    ) -> int:
-        return await self._store.record(
-            statement_key=statement_key, tx_index=tx_index,
-            decision=decision, reviewer=reviewer, note=note,
-        )
-
-    async def get_decisions(self, statement_key: str) -> list[dict]:
-        return list((await self._store.latest_for_statement(statement_key)).values())
-
-    async def record(self, **kwargs) -> int:
-        return await self._store.record(**kwargs)
-
-    async def latest_for_statement(self, statement_key: str) -> dict:
-        return await self._store.latest_for_statement(statement_key)
-
-    async def history(self, statement_key: str, tx_index: int) -> list[dict]:
-        return await self._store.history(statement_key, tx_index)
-
-
-class _ReplayingExtractHandler:
-    def __init__(self, /, *, inner: ExtractStatementHandler, replay_player: DemoReplayPlayer, event_bus) -> None:
-        self._inner = inner
-        self._replay = replay_player
-        self._event_bus = event_bus
-
-    async def __call__(self, command):
-        if is_replay_enabled():
-            bus = self._event_bus
-
-            def log_event(name: str, data: dict) -> None:
-                import asyncio as _asyncio
-                try:
-                    loop = _asyncio.get_running_loop()
-                    loop.create_task(bus.publish(name, data))
-                except RuntimeError:
-                    pass
-
-            return await self._replay.replay(
-                log_event=log_event,
-                tier=getattr(command, "tier", None),
-            )
-        return await self._inner(command)
 
 
 class SettingsProvider(Provider):
@@ -170,25 +89,8 @@ class SettingsProvider(Provider):
         return get_settings()
 
 
-class InfrastructureProvider(Provider):
+class PersistenceProvider(Provider):
     scope = Scope.APP
-
-    @provide
-    def telemetry(self) -> TelemetryCollectorPort:
-        return CallStatsCollector()
-
-    @provide
-    def llm(self, settings: AppSettings, telemetry: TelemetryCollectorPort) -> LLMBackendPort:
-        backend_name = settings.backend or os.getenv("EXTRACTOR_BACKEND", "anthropic")
-        if backend_name == "ollama":
-            from dobs.infrastructure.adapters.llm.ollama_backend import OllamaLLMBackend
-            return OllamaLLMBackend(telemetry=telemetry)
-        return AnthropicLLMBackend(telemetry=telemetry)
-
-    @provide
-    async def cache(self, settings: AppSettings) -> StatementCachePort:
-        url = settings.cache_url or os.getenv("EXTRACTOR_CACHE_URL", "out/cache.db")
-        return await open_cache(url)
 
     @provide
     def audit_sessions(self, settings: AppSettings) -> AuditSessions:
@@ -228,35 +130,72 @@ class InfrastructureProvider(Provider):
     def vendor_cache(self, sessions: VendorCacheSessions) -> VendorCacheStore:
         return VendorCacheStore(sessions=sessions)
 
+
+class InfrastructureProvider(Provider):
+    scope = Scope.APP
+
+    @provide
+    def spend_guard(self, settings: AppSettings) -> SpendGuard:
+        return SpendGuard(cap_usd=settings.spend_cap_usd)
+
+    @provide
+    def telemetry(self, spend_guard: SpendGuard) -> TelemetryCollectorPort:
+        return CallStatsCollector(spend_guard=spend_guard)
+
+    @provide
+    def llm(self, settings: AppSettings, telemetry: TelemetryCollectorPort) -> LLMBackendPort:
+        backend_name = settings.backend or os.getenv("EXTRACTOR_BACKEND", "anthropic")
+        if backend_name == "ollama":
+            from dobs.infrastructure.adapters.llm.ollama_backend import OllamaLLMBackend
+            return OllamaLLMBackend(telemetry=telemetry)
+        return AnthropicLLMBackend(telemetry=telemetry)
+
+    @provide
+    async def cache(self, settings: AppSettings) -> StatementCachePort:
+        url = settings.cache_url or os.getenv("EXTRACTOR_CACHE_URL", "out/cache.db")
+        return await open_cache(url)
+
     @provide
     def audit(self, sessions: AuditSessions) -> AuditSinkPort:
         return SqliteAuditSink(sessions=sessions)
 
     @provide
-    def review_store_raw(self, sessions: ReviewSessions) -> SqliteReviewStore:
+    def review(self, sessions: ReviewSessions) -> ReviewStorePort:
         return SqliteReviewStore(sessions=sessions)
-
-    @provide
-    def review(self, store: SqliteReviewStore) -> ReviewStorePort:
-        return _ReviewStoreAdapter(store=store)
 
     @provide
     def lessons(self, sessions: LessonsSessions) -> LessonsStorePort:
         return SqliteLessonsStore(sessions=sessions)
 
     @provide
-    def vendor_composite(self, vendor_cache: VendorCacheStore) -> CompositeVendorLookup:
+    def vendor_lookup(self, vendor_cache: VendorCacheStore) -> VendorLookupPort:
         seed = SeedVendorLookup()
         clearbit = ClearbitVendorLookup(cache=vendor_cache)
         return CompositeVendorLookup(seed=seed, clearbit=clearbit)
 
     @provide
-    def vendor(self, composite: CompositeVendorLookup) -> VendorLookupPort:
-        return _VendorLookupWithEnrich(inner=composite)
+    def vendor_enricher(self, lookup: VendorLookupPort) -> VendorEnricherPort:
+        return VendorEnricher(lookup=lookup)
 
     @provide
     def event_bus(self) -> EventBusPort:
-        return _EventBusEmitAdapter(bus=AsyncioEventBus())
+        return ContextEventBus()
+
+    @provide
+    def memory_job_store(self) -> MemoryJobStore:
+        return MemoryJobStore()
+
+    @provide
+    def background_runner(self) -> BackgroundJobRunner:
+        return BackgroundJobRunner()
+
+    @provide
+    def job_store(self, settings: AppSettings, memory: MemoryJobStore) -> JobStorePort:
+        redis_url = settings.redis_url or os.getenv("REDIS_URL")
+        if redis_url:
+            from dobs.infrastructure.adapters.jobs.redis_job_store import RedisJobStore
+            return RedisJobStore(url=redis_url)
+        return memory
 
     @provide
     def ocr(self, llm: LLMBackendPort, ocr_cache: OcrCacheStore) -> OcrEnginePort:
@@ -350,11 +289,7 @@ class ExtractionHandlersProvider(Provider):
         )
 
     @provide
-    def summary(
-        self,
-        llm: LLMBackendPort,
-        sanitizer: PromptSanitizer,
-    ) -> ExtractSummaryHandler:
+    def summary(self, llm: LLMBackendPort, sanitizer: PromptSanitizer) -> ExtractSummaryHandler:
         return ExtractSummaryHandler(llm=llm, sanitizer=sanitizer)
 
     @provide
@@ -379,9 +314,7 @@ class ExtractionHandlersProvider(Provider):
         sanitizer: PromptSanitizer,
         reconciler: Reconciler,
     ) -> RepairStatementHandler:
-        return RepairStatementHandler(
-            llm=llm, sanitizer=sanitizer, reconciler=reconciler,
-        )
+        return RepairStatementHandler(llm=llm, sanitizer=sanitizer, reconciler=reconciler)
 
     @provide
     def enrich(self, llm: LLMBackendPort) -> EnrichTransactionsHandler:
@@ -404,7 +337,7 @@ class ExtractionHandlersProvider(Provider):
         transactions: ExtractTransactionsHandler,
         repair: RepairStatementHandler,
         enrich_cmd: EnrichTransactionsHandler,
-        vendor: VendorLookupPort,
+        vendor: VendorEnricherPort,
         llm: LLMBackendPort,
         segmenter: StatementSegmenter,
         reconciler: Reconciler,
@@ -431,8 +364,8 @@ class ExtractionHandlersProvider(Provider):
         inner: ExtractStatementHandler,
         replay_player: DemoReplayPlayer,
         event_bus: EventBusPort,
-    ) -> _ReplayingExtractHandler:
-        return _ReplayingExtractHandler(
+    ) -> ReplayingExtractHandler:
+        return ReplayingExtractHandler(
             inner=inner, replay_player=replay_player, event_bus=event_bus,
         )
 
@@ -488,6 +421,7 @@ class QueryHandlersProvider(Provider):
 def build_providers() -> list[Provider]:
     return [
         SettingsProvider(),
+        PersistenceProvider(),
         InfrastructureProvider(),
         DomainServicesProvider(),
         ApplicationServicesProvider(),

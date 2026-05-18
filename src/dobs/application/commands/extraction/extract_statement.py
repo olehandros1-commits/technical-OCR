@@ -28,7 +28,7 @@ from dobs.application.ports.event_bus import EventBusPort
 from dobs.application.ports.lessons_store import LessonsStorePort
 from dobs.application.ports.ocr_engine import OcrEnginePort
 from dobs.application.ports.telemetry_collector import TelemetryCollectorPort
-from dobs.application.ports.vendor_lookup import VendorLookupPort
+from dobs.application.ports.vendor_enricher import VendorEnricherPort
 from dobs.application.services.segmenter import StatementSegment, StatementSegmenter
 from dobs.application.services.lessons_helpers import LessonsHelper
 from dobs.domain.entities.audit_record import AuditRecord
@@ -39,6 +39,9 @@ from dobs.domain.services.forensic_detector import ForensicAnomalyDetector
 from dobs.domain.services.reconcile import Reconciler
 from dobs.domain.services.recurring_detector import RecurringDetector
 from dobs.application.ports.llm_backend import LLMBackendPort
+from dobs.main.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -67,7 +70,7 @@ class ExtractStatementHandler:
         transactions: ExtractTransactionsHandler,
         repair: RepairStatementHandler,
         enrich_cmd: EnrichTransactionsHandler,
-        vendor: VendorLookupPort,
+        vendor: VendorEnricherPort,
         llm: LLMBackendPort,
         segmenter: StatementSegmenter,
         reconciler: Reconciler,
@@ -128,19 +131,19 @@ class ExtractStatementHandler:
 
         cached = await self._cache.get(cache_key)
         if cached is not None:
-            await self._event_bus.emit("cache_hit", {
+            await self._event_bus.publish("cache_hit", {
                 "label": label, "backend": backend_name, "key": cache_key
             })
             return cached
 
-        await self._event_bus.emit("segment_start", {
+        await self._event_bus.publish("segment_start", {
             "label": label, "chars": len(seg.text), "backend": backend_name
         })
 
         account, summary_vo = await self._summary(
             ExtractSummaryCommand(segment_text=seg.text)
         )
-        await self._event_bus.emit("summary_done", {
+        await self._event_bus.publish("summary_done", {
             "label": label,
             "bank": account.bank,
             "last4": account.account_last4,
@@ -154,7 +157,7 @@ class ExtractStatementHandler:
                 period_end=account.period.end,
             )
         )
-        await self._event_bus.emit("transactions_done", {
+        await self._event_bus.publish("transactions_done", {
             "label": label,
             "count": len(tx_result.transactions),
             "skipped": len(tx_result.skipped_rows),
@@ -188,13 +191,14 @@ class ExtractStatementHandler:
                 for pattern_hash, hint in lessons:
                     await self._lessons.record(pattern_hash, hint, source=label)
                 if lessons:
-                    await self._event_bus.emit("lessons_recorded", {
+                    await self._event_bus.publish("lessons_recorded", {
                         "label": label, "count": len(lessons)
                     })
             except Exception:
-                pass
+                log.warning("lessons record failed", label=label, exc_info=True)
+                await self._event_bus.publish("lessons_failed", {"label": label})
 
-        await self._event_bus.emit("segment_done", {
+        await self._event_bus.publish("segment_done", {
             "label": label,
             "reconciled": final_recon.ok,
             "issues": list(final_recon.issues),
@@ -206,7 +210,8 @@ class ExtractStatementHandler:
                     EnrichTransactionsCommand(transactions=final_txns)
                 )
             except Exception:
-                pass
+                log.warning("enrich step failed", label=label, exc_info=True)
+                await self._event_bus.publish("enrich_failed", {"label": label})
 
         anomalies = await self._anomaly_detector.detect(
             final_txns, account.period.start, account.period.end
@@ -215,7 +220,7 @@ class ExtractStatementHandler:
         anomalies = list(anomalies) + list(forensic)
 
         if anomalies:
-            await self._event_bus.emit("anomalies_found", {
+            await self._event_bus.publish("anomalies_found", {
                 "label": label,
                 "count": len(anomalies),
             })
@@ -223,6 +228,7 @@ class ExtractStatementHandler:
         try:
             recurring = await self._recurring_detector.detect(final_txns)
         except Exception:
+            log.warning("recurring detector failed", label=label, exc_info=True)
             recurring = []
 
         statement = Statement(
@@ -238,7 +244,7 @@ class ExtractStatementHandler:
 
         if final_recon.ok:
             await self._cache.put(cache_key, statement)
-            await self._event_bus.emit("cache_write", {
+            await self._event_bus.publish("cache_write", {
                 "label": label, "key": cache_key
             })
 
@@ -248,7 +254,7 @@ class ExtractStatementHandler:
         import time
         started_at = time.time()
 
-        await self._event_bus.emit("ingest_start", {
+        await self._event_bus.publish("ingest_start", {
             "pdf": command.pdf_path,
             "txt": command.txt_path,
             "ocr_mode": command.ocr_mode,
@@ -258,29 +264,29 @@ class ExtractStatementHandler:
             text = await asyncio.to_thread(
                 Path(command.txt_path).read_text, encoding="utf-8", errors="ignore"
             )
-            await self._event_bus.emit("ocr_cache_hit", {
+            await self._event_bus.publish("ocr_cache_hit", {
                 "method": "txt-passthrough", "chars": len(text),
             })
         elif command.pdf_path:
             text = await self._ocr.extract_text(
                 command.pdf_path,
                 log_event=lambda name, data: asyncio.ensure_future(
-                    self._event_bus.emit(name, data)
+                    self._event_bus.publish(name, data)
                 ),
             )
         else:
             raise ValueError("ExtractStatementCommand requires pdf_path or txt_path")
 
-        await self._event_bus.emit("ingest_done", {"chars": len(text)})
+        await self._event_bus.publish("ingest_done", {"chars": len(text)})
 
         segments = await self._segmenter.split(text)
         if not segments:
-            await self._event_bus.emit("segment_fallback", {
+            await self._event_bus.publish("segment_fallback", {
                 "reason": "regex found no boundaries, asking LLM"
             })
             segments = await self._segmenter.split_with_llm(text, self._llm)
 
-        await self._event_bus.emit("segment_done_all", {
+        await self._event_bus.publish("segment_done_all", {
             "statement_count": len(segments),
             "periods": [s.period_start_raw for s in segments],
         })
@@ -299,7 +305,7 @@ class ExtractStatementHandler:
         if len(statements) >= 2:
             continuity_issues = await self._continuity_auditor.audit(statements)
             if continuity_issues:
-                await self._event_bus.emit("continuity_issues", {
+                await self._event_bus.publish("continuity_issues", {
                     "count": len(continuity_issues)
                 })
                 from dobs.domain.value_objects.anomaly import Anomaly
@@ -327,7 +333,8 @@ class ExtractStatementHandler:
                 for t in stmt.transactions
             ])
         except Exception:
-            pass
+            log.warning("vendor enrich step failed", exc_info=True)
+            await self._event_bus.publish("vendor_enrich_failed", {})
 
         try:
             tel = self._telemetry.summary()
@@ -355,12 +362,15 @@ class ExtractStatementHandler:
                 },
             )
             audit_id = await self._audit.record(started_at, audit_rec)
-            await self._event_bus.emit("audit_recorded", {
+            await self._event_bus.publish("audit_recorded", {
                 "audit_id": audit_id,
                 "total_cost_usd": round(audit_rec.total_cost_usd, 4),
                 "elapsed_s": audit_rec.elapsed_s,
             })
         except Exception:
-            pass
+            log.error("AUDIT RECORD FAILED — compliance gap", exc_info=True)
+            await self._event_bus.publish("audit_failed", {
+                "elapsed_s": round(time.time() - started_at, 2),
+            })
 
         return statements

@@ -11,7 +11,8 @@ from dishka import make_async_container
 from rich.console import Console
 
 from dobs.application.commands.extraction.extract_statement import ExtractStatementCommand
-from dobs.main.di import _ReplayingExtractHandler, build_providers
+from dobs.infrastructure.adapters.replay.replaying_extract_handler import ReplayingExtractHandler
+from dobs.main.di import build_providers
 
 err = Console(stderr=True)
 
@@ -68,7 +69,7 @@ async def _run(
     container = make_async_container(*build_providers())
     try:
         async with container() as scope:
-            handler = await scope.get(_ReplayingExtractHandler)
+            handler = await scope.get(ReplayingExtractHandler)
             command = ExtractStatementCommand(
                 pdf_path=pdf_path,
                 txt_path=txt_path,
