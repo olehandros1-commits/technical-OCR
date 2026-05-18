@@ -306,6 +306,14 @@ html, body, #root {
 .pdf-loading, .pdf-error {
   padding: 24px; color: var(--fg-muted); text-align: center;
 }
+.pdf-toast {
+  background: rgba(245,158,11,0.15);
+  border-bottom: 1px solid var(--warn);
+  color: var(--warn);
+  font-size: 12px;
+  padding: 6px 12px;
+  text-align: center;
+}
 
 .statement-card {
   background: var(--bg-card);
@@ -447,9 +455,17 @@ html, body, #root {
 .tx-table td.num, .tx-table th.num { text-align: right; font-family: ui-monospace, monospace; }
 .tx-table td.desc { max-width: 380px; overflow: hidden; text-overflow: ellipsis; }
 .tx-table tr.low-conf { background: rgba(245,158,11,0.06); }
+.tx-table tr.tx-row-selected { background: rgba(56,189,248,0.15); }
 .cat {
   background: var(--bg-card); padding: 1px 6px; border-radius: 4px;
   font-size: 10px; color: var(--fg-muted); font-family: ui-monospace, monospace;
+}
+
+.pdf-highlight {
+  background: rgba(255,220,0,0.55);
+  border-radius: 2px;
+  outline: 1px solid var(--warn);
+  color: #000;
 }
 
 /* ---- Downloads ---- */

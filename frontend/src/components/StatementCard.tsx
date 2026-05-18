@@ -7,10 +7,12 @@ import { explainAnomaly, type ExplainResult } from "../api";
 
 interface Props {
   statement: StatementResult;
+  onTxSelect?: (text: string) => void;
 }
 
-export function StatementCard({ statement }: Props) {
+export function StatementCard({ statement, onTxSelect }: Props) {
   const { account, summary, _reconciliation, _anomalies, transactions } = statement;
+  const [selectedTxIndex, setSelectedTxIndex] = useState<number | null>(null);
   const [showAnomalies, setShowAnomalies] = useState(false);
   const [explanations, setExplanations] = useState<Record<number, ExplainResult | "loading" | "error">>({});
 
@@ -172,7 +174,14 @@ export function StatementCard({ statement }: Props) {
 
       <RecurringPanel groups={statement._recurring ?? []} />
 
-      <TransactionsTable transactions={transactions} />
+      <TransactionsTable
+        transactions={transactions}
+        selectedIndex={selectedTxIndex}
+        onSelect={(i, text) => {
+          setSelectedTxIndex(i);
+          onTxSelect?.(text);
+        }}
+      />
 
       <div className="downloads">
         <button onClick={() => downloadJson(statement)}>

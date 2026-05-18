@@ -27,6 +27,7 @@ import "./App.css";
 const REVIEW_THRESHOLD = 0.5;
 
 export default function App() {
+  const [selectedTxText, setSelectedTxText] = useState<string | null>(null);
   const [pdf, setPdf] = useState<File | null>(null);
   const [txt, setTxt] = useState<File | null>(null);
   const [backend, setBackend] = useState<Backend>("anthropic");
@@ -206,10 +207,11 @@ export default function App() {
                 <StatementCard
                   key={`${r.account.period.start}-${r.account.account_last4}`}
                   statement={r}
+                  onTxSelect={setSelectedTxText}
                 />
               ))}
             </div>
-            <PdfPreview file={pdf} />
+            <PdfPreview file={pdf} targetText={selectedTxText} />
           </div>
         </section>
       )}
